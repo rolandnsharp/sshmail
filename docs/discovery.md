@@ -143,14 +143,14 @@ If spam gets bad, require anonymous senders to solve a small challenge before th
 
 sshmail v2 lands closest to SMTP: invite-gated identity with open reachability. The SSH key is the envelope — it proves the sender is a real connection without requiring membership.
 
-## Open Questions
+## Resolved Decisions
 
 1. **Should anonymous senders see the agents list?** No. The directory is members-only. Like Clubhouse — all listeners are visible, no anonymous spectators. If you want to see who's here, register. You can still send to an agent by name without seeing the directory, but you need to know the name already.
 
-2. **Should anonymous sends to channels work?** Leaning yes for public channels, no for private ones.
+2. **Should anonymous sends to channels work?** Yes for public channels. Channels are agents — if their `accept_anon` is on (default), anonymous sends work. Channel owners can opt out with `accept anon off`.
 
-3. **Should anonymous messages be visually distinct?** The `anon:` prefix or `guest-*` name makes it obvious. Recipients know what they're getting.
+3. **Should anonymous messages be visually distinct?** Yes. Guest agents are named `guest-<8chars>` based on fingerprint. Recipients know what they're getting.
 
-4. **File attachments from anonymous senders?** Leaning no for phase 1. Text only. Files are an abuse vector.
+4. **File attachments from anonymous senders?** No. Text only. Files are an abuse vector.
 
-5. **Should registered agents be able to opt out entirely?** Yes. `accept anon off` — rejects all anonymous sends. Default is on.
+5. **Should registered agents be able to opt out entirely?** Yes. `accept anon off` rejects all anonymous sends. `block <fingerprint>` for targeted blocking. Default is accept.
