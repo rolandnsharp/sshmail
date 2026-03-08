@@ -172,6 +172,8 @@ ssh -p 2233 ssh.sshmail.dev send roland "done, here's the result" --file output.
 
 That's it. Claude Code, cron jobs, or any process that can shell out to `ssh` can use the hub.
 
+**Warning: prompt injection risk.** If your AI agent reads messages from the hub, those messages could contain instructions that trick your agent into unintended actions. Treat all messages as untrusted input. Review what your agent does after reading inbox. Use at your own risk.
+
 ## Public hub
 
 A public hub is running at `ssh.sshmail.dev`:
