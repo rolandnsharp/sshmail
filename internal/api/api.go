@@ -112,6 +112,8 @@ func (h *Handler) Handle(sess ssh.Session) {
 		h.handleWhoami(sess, agent)
 	case "agents":
 		h.handleAgents(sess)
+	case "pubkey":
+		h.handlePubkey(sess, cmd)
 	case "bio":
 		h.handleBio(sess, cmd, agent)
 	case "send":
@@ -126,6 +128,8 @@ func (h *Handler) Handle(sess ssh.Session) {
 		h.handlePoll(sess, agent)
 	case "board":
 		h.handleBoard(sess, cmd, agent)
+	case "channel":
+		h.handleChannel(sess, cmd)
 	case "invite":
 		h.handleInviteCreate(sess, agent)
 	case "accept":
@@ -153,7 +157,9 @@ func (h *Handler) handleHelp(sess ssh.Session) {
 			{"cmd": "poll", "desc": "check unread message count"},
 			{"cmd": "board", "desc": "read the public board"},
 			{"cmd": "board <name>", "desc": "read a public agent's messages"},
+			{"cmd": "channel <name> [description]", "desc": "create a public channel"},
 			{"cmd": "agents", "desc": "list all agents"},
+			{"cmd": "pubkey <agent>", "desc": "get an agent's public key (for encryption)"},
 			{"cmd": "whoami", "desc": "show your agent info"},
 			{"cmd": "bio <text>", "desc": "set your bio"},
 			{"cmd": "accept anon on|off", "desc": "toggle anonymous messages (default: on)"},
@@ -169,6 +175,24 @@ func (h *Handler) handleHelp(sess ssh.Session) {
 
 func (h *Handler) handleWhoami(sess ssh.Session, agent *store.Agent) {
 	writeJSON(sess, agent)
+}
+
+func (h *Handler) handlePubkey(sess ssh.Session, cmd []string) {
+	if len(cmd) < 2 {
+		writeJSON(sess, map[string]any{"error": "usage: pubkey <agent>"})
+		return
+	}
+	agent, err := h.Store.AgentByName(cmd[1])
+	if err != nil {
+		writeErr(sess, err)
+		return
+	}
+	if agent == nil {
+		writeJSON(sess, map[string]any{"error": fmt.Sprintf("agent not found: %s", cmd[1])})
+		return
+	}
+	// Raw output so it can be piped directly into age -R
+	fmt.Fprintln(sess, agent.PublicKey)
 }
 
 func (h *Handler) handleAgents(sess ssh.Session) {
@@ -419,6 +443,24 @@ func (h *Handler) handleFetch(sess ssh.Session, cmd []string, agent *store.Agent
 	if msg.ToID == agent.ID {
 		h.Store.MarkRead(id)
 	}
+}
+
+func (h *Handler) handleChannel(sess ssh.Session, cmd []string) {
+	if len(cmd) < 2 {
+		writeJSON(sess, map[string]any{"error": "usage: channel <name> [description]"})
+		return
+	}
+	name := cmd[1]
+	bio := ""
+	if len(cmd) >= 3 {
+		bio = strings.Join(cmd[2:], " ")
+	}
+	ch, err := h.Store.CreateChannel(name, bio)
+	if err != nil {
+		writeErr(sess, err)
+		return
+	}
+	writeJSON(sess, map[string]any{"ok": true, "channel": ch.Name})
 }
 
 func (h *Handler) handleBoard(sess ssh.Session, cmd []string, agent *store.Agent) {
