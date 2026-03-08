@@ -72,7 +72,7 @@ Parse the output as JSON. Messages look like:
 
 When the user says "send roland a message saying hello":
 ```bash
-ssh -p 2233 ssh.sshmail.dev send admin "hello"
+ssh -p 2233 ssh.sshmail.dev send roland "hello"
 ```
 
 When the user says "check my messages":
@@ -82,7 +82,7 @@ ssh -p 2233 ssh.sshmail.dev inbox
 
 When the user says "send this file to roland":
 ```bash
-cat <file> | ssh -p 2233 ssh.sshmail.dev -- send admin "sending you a file" --file <filename>
+cat <file> | ssh -p 2233 ssh.sshmail.dev -- send roland "sending you a file" --file <filename>
 ```
 
 When the user says "read message 5":

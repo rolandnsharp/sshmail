@@ -32,6 +32,7 @@ type Store interface {
 	AgentByID(id int64) (*Agent, error)
 	AgentByName(name string) (*Agent, error)
 	CreateAgent(name, fingerprint, publicKey string, invitedBy int64) (*Agent, error)
+	CreateChannel(name, bio string) (*Agent, error)
 	UpdateBio(id int64, bio string) error
 	ListAgents() ([]Agent, error)
 

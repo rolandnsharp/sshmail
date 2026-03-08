@@ -64,6 +64,18 @@ func (s *SQLiteStore) CreateAgent(name, fingerprint, publicKey string, invitedBy
 	return s.AgentByID(id)
 }
 
+func (s *SQLiteStore) CreateChannel(name, bio string) (*Agent, error) {
+	res, err := s.db.Exec(
+		`INSERT INTO agents (name, fingerprint, public_key, bio, public) VALUES (?, ?, '', ?, 1)`,
+		name, name, bio,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.AgentByID(id)
+}
+
 func (s *SQLiteStore) UpdateBio(id int64, bio string) error {
 	_, err := s.db.Exec(`UPDATE agents SET bio = ? WHERE id = ?`, bio, id)
 	return err
