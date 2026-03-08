@@ -20,14 +20,15 @@ func AgentFromContext(ctx context.Context) *store.Agent {
 	return nil
 }
 
+// PublicKeyHandler accepts all keys but only sets agent context for known ones.
+// This allows unauthenticated users to connect and redeem invites.
 func PublicKeyHandler(s store.Store) func(ctx ssh.Context, key ssh.PublicKey) bool {
 	return func(ctx ssh.Context, key ssh.PublicKey) bool {
 		fingerprint := gossh.FingerprintSHA256(key)
-		agent, err := s.AgentByFingerprint(fingerprint)
-		if err != nil || agent == nil {
-			return false
+		agent, _ := s.AgentByFingerprint(fingerprint)
+		if agent != nil {
+			ctx.SetValue(agentKey, agent)
 		}
-		ctx.SetValue(agentKey, agent)
-		return true
+		return true // always allow connection
 	}
 }
