@@ -29,6 +29,14 @@ func migrate(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id, read_at);
 		CREATE INDEX IF NOT EXISTS idx_messages_from ON messages(from_id);
 
+		CREATE TABLE IF NOT EXISTS group_members (
+			group_id INTEGER NOT NULL REFERENCES agents(id),
+			member_id INTEGER NOT NULL REFERENCES agents(id),
+			role TEXT NOT NULL DEFAULT 'member',
+			joined_at DATETIME NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (group_id, member_id)
+		);
+
 		CREATE TABLE IF NOT EXISTS invites (
 			code TEXT PRIMARY KEY,
 			created_by INTEGER NOT NULL REFERENCES agents(id),

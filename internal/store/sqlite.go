@@ -117,13 +117,13 @@ func (s *SQLiteStore) Inbox(agentID int64, all bool) ([]Message, error) {
 		FROM messages m
 		JOIN agents f ON m.from_id = f.id
 		JOIN agents t ON m.to_id = t.id
-		WHERE m.to_id = ?`
+		WHERE (m.to_id = ? OR m.to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))`
 	if !all {
 		query += ` AND m.read_at IS NULL`
 	}
 	query += ` ORDER BY m.created_at DESC`
 
-	rows, err := s.db.Query(query, agentID)
+	rows, err := s.db.Query(query, agentID, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +161,101 @@ func (s *SQLiteStore) MarkRead(id int64) error {
 
 func (s *SQLiteStore) UnreadCount(agentID int64) (int, error) {
 	var count int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE to_id = ? AND read_at IS NULL`, agentID).Scan(&count)
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM messages
+		WHERE (to_id = ? OR to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))
+		AND read_at IS NULL`, agentID, agentID).Scan(&count)
 	return count, err
+}
+
+// --- Groups ---
+
+func (s *SQLiteStore) CreateGroup(name, bio string, adminID int64) (*Agent, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
+		`INSERT INTO agents (name, fingerprint, public_key, bio, public) VALUES (?, ?, '', ?, 0)`,
+		name, "group:"+name, bio,
+	)
+	if err != nil {
+		return nil, err
+	}
+	groupID, _ := res.LastInsertId()
+
+	_, err = tx.Exec(
+		`INSERT INTO group_members (group_id, member_id, role) VALUES (?, ?, 'admin')`,
+		groupID, adminID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.AgentByID(groupID)
+}
+
+func (s *SQLiteStore) AddGroupMember(groupID, memberID int64) error {
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO group_members (group_id, member_id, role) VALUES (?, ?, 'member')`,
+		groupID, memberID,
+	)
+	return err
+}
+
+func (s *SQLiteStore) RemoveGroupMember(groupID, memberID int64) error {
+	_, err := s.db.Exec(
+		`DELETE FROM group_members WHERE group_id = ? AND member_id = ?`,
+		groupID, memberID,
+	)
+	return err
+}
+
+func (s *SQLiteStore) GroupMembers(groupID int64) ([]GroupMember, error) {
+	rows, err := s.db.Query(`
+		SELECT a.id, a.name, gm.role, gm.joined_at
+		FROM group_members gm
+		JOIN agents a ON gm.member_id = a.id
+		WHERE gm.group_id = ?
+		ORDER BY gm.joined_at`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var members []GroupMember
+	for rows.Next() {
+		var m GroupMember
+		if err := rows.Scan(&m.AgentID, &m.Name, &m.Role, &m.JoinedAt); err != nil {
+			return nil, err
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
+func (s *SQLiteStore) GroupRole(groupID, agentID int64) (string, error) {
+	var role string
+	err := s.db.QueryRow(
+		`SELECT role FROM group_members WHERE group_id = ? AND member_id = ?`,
+		groupID, agentID,
+	).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return role, err
+}
+
+func (s *SQLiteStore) IsGroupMember(groupID, agentID int64) (bool, error) {
+	role, err := s.GroupRole(groupID, agentID)
+	if err != nil {
+		return false, err
+	}
+	return role != "", nil
 }
 
 // --- Invites ---

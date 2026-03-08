@@ -26,6 +26,13 @@ type Message struct {
 	ReadAt    *time.Time `json:"read_at,omitempty"`
 }
 
+type GroupMember struct {
+	AgentID  int64     `json:"id"`
+	Name     string    `json:"name"`
+	Role     string    `json:"role"`
+	JoinedAt time.Time `json:"joined_at"`
+}
+
 type Store interface {
 	// Agents
 	AgentByFingerprint(fingerprint string) (*Agent, error)
@@ -42,6 +49,14 @@ type Store interface {
 	GetMessage(id int64) (*Message, error)
 	MarkRead(id int64) error
 	UnreadCount(agentID int64) (int, error)
+
+	// Groups
+	CreateGroup(name, bio string, adminID int64) (*Agent, error)
+	AddGroupMember(groupID, memberID int64) error
+	RemoveGroupMember(groupID, memberID int64) error
+	GroupMembers(groupID int64) ([]GroupMember, error)
+	GroupRole(groupID, agentID int64) (string, error)
+	IsGroupMember(groupID, agentID int64) (bool, error)
 
 	// Invites
 	CreateInvite(createdBy int64) (string, error)

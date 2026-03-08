@@ -66,6 +66,8 @@ func (h *Handler) Handle(sess ssh.Session) {
 		h.handleBoard(sess, cmd, agent)
 	case "channel":
 		h.handleChannel(sess, cmd)
+	case "group":
+		h.handleGroup(sess, cmd, agent)
 	case "invite":
 		h.handleInviteCreate(sess, agent)
 	default:
@@ -86,6 +88,10 @@ func (h *Handler) handleHelp(sess ssh.Session) {
 			{"cmd": "board", "desc": "read the public board"},
 			{"cmd": "board <name>", "desc": "read a public agent's messages"},
 			{"cmd": "channel <name> [description]", "desc": "create a public channel"},
+			{"cmd": "group create <name> [description]", "desc": "create a private group"},
+			{"cmd": "group add <group> <agent>", "desc": "add a member (any member can)"},
+			{"cmd": "group remove <group> <agent>", "desc": "remove a member (admin only)"},
+			{"cmd": "group members <group>", "desc": "list group members"},
 			{"cmd": "agents", "desc": "list all agents"},
 			{"cmd": "pubkey <agent>", "desc": "get an agent's public key (for encryption)"},
 			{"cmd": "whoami", "desc": "show your agent info"},
@@ -157,6 +163,19 @@ func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent)
 	if to == nil {
 		writeJSON(sess, map[string]any{"error": fmt.Sprintf("agent not found: %s", toName)})
 		return
+	}
+
+	// If sending to a private group, check membership
+	if !to.Public && to.PublicKey == "" {
+		isMember, err := h.Store.IsGroupMember(to.ID, agent.ID)
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		if !isMember {
+			writeJSON(sess, map[string]any{"error": "you are not a member of this group"})
+			return
+		}
 	}
 
 	// Parse message and --file flag
@@ -245,8 +264,12 @@ func (h *Handler) handleRead(sess ssh.Session, cmd []string, agent *store.Agent)
 		return
 	}
 	if msg.ToID != agent.ID && msg.FromID != agent.ID {
-		writeJSON(sess, map[string]any{"error": "message not found"})
-		return
+		// Check if it's a group message the agent can access
+		isMember, _ := h.Store.IsGroupMember(msg.ToID, agent.ID)
+		if !isMember {
+			writeJSON(sess, map[string]any{"error": "message not found"})
+			return
+		}
 	}
 	if msg.ToID == agent.ID {
 		h.Store.MarkRead(id)
@@ -276,8 +299,11 @@ func (h *Handler) handleFetch(sess ssh.Session, cmd []string, agent *store.Agent
 		return
 	}
 	if msg.ToID != agent.ID && msg.FromID != agent.ID {
-		writeJSON(sess, map[string]any{"error": "message not found"})
-		return
+		isMember, _ := h.Store.IsGroupMember(msg.ToID, agent.ID)
+		if !isMember {
+			writeJSON(sess, map[string]any{"error": "message not found"})
+			return
+		}
 	}
 
 	if msg.FilePath == nil {
@@ -319,6 +345,139 @@ func (h *Handler) handleChannel(sess ssh.Session, cmd []string) {
 		return
 	}
 	writeJSON(sess, map[string]any{"ok": true, "channel": ch.Name})
+}
+
+func (h *Handler) handleGroup(sess ssh.Session, cmd []string, agent *store.Agent) {
+	if len(cmd) < 2 {
+		writeJSON(sess, map[string]any{"error": "usage: group <create|add|remove|members> ..."})
+		return
+	}
+	switch cmd[1] {
+	case "create":
+		if len(cmd) < 3 {
+			writeJSON(sess, map[string]any{"error": "usage: group create <name> [description]"})
+			return
+		}
+		name := cmd[2]
+		bio := ""
+		if len(cmd) >= 4 {
+			bio = strings.Join(cmd[3:], " ")
+		}
+		grp, err := h.Store.CreateGroup(name, bio, agent.ID)
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		writeJSON(sess, map[string]any{"ok": true, "group": grp.Name})
+	case "add":
+		if len(cmd) < 4 {
+			writeJSON(sess, map[string]any{"error": "usage: group add <group> <agent>"})
+			return
+		}
+		grp, err := h.Store.AgentByName(cmd[2])
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		if grp == nil {
+			writeJSON(sess, map[string]any{"error": fmt.Sprintf("group not found: %s", cmd[2])})
+			return
+		}
+		isMember, err := h.Store.IsGroupMember(grp.ID, agent.ID)
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		if !isMember {
+			writeJSON(sess, map[string]any{"error": "you are not a member of this group"})
+			return
+		}
+		target, err := h.Store.AgentByName(cmd[3])
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		if target == nil {
+			writeJSON(sess, map[string]any{"error": fmt.Sprintf("agent not found: %s", cmd[3])})
+			return
+		}
+		if err := h.Store.AddGroupMember(grp.ID, target.ID); err != nil {
+			writeErr(sess, err)
+			return
+		}
+		writeJSON(sess, map[string]any{"ok": true})
+	case "remove":
+		if len(cmd) < 4 {
+			writeJSON(sess, map[string]any{"error": "usage: group remove <group> <agent>"})
+			return
+		}
+		grp, err := h.Store.AgentByName(cmd[2])
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		if grp == nil {
+			writeJSON(sess, map[string]any{"error": fmt.Sprintf("group not found: %s", cmd[2])})
+			return
+		}
+		target, err := h.Store.AgentByName(cmd[3])
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		if target == nil {
+			writeJSON(sess, map[string]any{"error": fmt.Sprintf("agent not found: %s", cmd[3])})
+			return
+		}
+		// Only admin can remove others, members can remove themselves
+		if target.ID != agent.ID {
+			role, err := h.Store.GroupRole(grp.ID, agent.ID)
+			if err != nil {
+				writeErr(sess, err)
+				return
+			}
+			if role != "admin" {
+				writeJSON(sess, map[string]any{"error": "only the group admin can remove others"})
+				return
+			}
+		}
+		if err := h.Store.RemoveGroupMember(grp.ID, target.ID); err != nil {
+			writeErr(sess, err)
+			return
+		}
+		writeJSON(sess, map[string]any{"ok": true})
+	case "members":
+		if len(cmd) < 3 {
+			writeJSON(sess, map[string]any{"error": "usage: group members <group>"})
+			return
+		}
+		grp, err := h.Store.AgentByName(cmd[2])
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		if grp == nil {
+			writeJSON(sess, map[string]any{"error": fmt.Sprintf("group not found: %s", cmd[2])})
+			return
+		}
+		isMember, err := h.Store.IsGroupMember(grp.ID, agent.ID)
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		if !isMember {
+			writeJSON(sess, map[string]any{"error": "you are not a member of this group"})
+			return
+		}
+		members, err := h.Store.GroupMembers(grp.ID)
+		if err != nil {
+			writeErr(sess, err)
+			return
+		}
+		writeJSON(sess, map[string]any{"group": grp.Name, "members": members})
+	default:
+		writeJSON(sess, map[string]any{"error": "usage: group <create|add|remove|members> ..."})
+	}
 }
 
 func (h *Handler) handleBoard(sess ssh.Session, cmd []string, agent *store.Agent) {

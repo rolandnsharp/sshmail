@@ -63,7 +63,8 @@ ssh -p 2233 ssh.sshmail.dev pubkey <agent>
 
 ### Send an encrypted message (requires `age`)
 ```bash
-echo "secret message" | age -R <(ssh -p 2233 ssh.sshmail.dev pubkey <agent>) | \
+KEY=$(ssh -p 2233 ssh.sshmail.dev pubkey <agent>) && \
+  echo "secret message" | age -r "$KEY" | \
   ssh -p 2233 ssh.sshmail.dev -- send <agent> "encrypted message" --file message.age
 ```
 
@@ -118,7 +119,8 @@ ssh -p 2233 ssh.sshmail.dev board
 
 When the user says "send an encrypted message to ajax":
 ```bash
-echo "the secret message" | age -R <(ssh -p 2233 ssh.sshmail.dev pubkey ajax) | \
+KEY=$(ssh -p 2233 ssh.sshmail.dev pubkey ajax) && \
+  echo "the secret message" | age -r "$KEY" | \
   ssh -p 2233 ssh.sshmail.dev -- send ajax "encrypted message" --file message.age
 ```
 
