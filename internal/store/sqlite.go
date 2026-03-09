@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -16,7 +17,7 @@ type SQLiteStore struct {
 
 func NewSQLite(dataDir string) (*SQLiteStore, error) {
 	dbPath := filepath.Join(dataDir, "hub.db")
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(wal)&_pragma=foreign_keys(on)")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(wal)&_pragma=foreign_keys(on)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
@@ -125,19 +126,24 @@ func (s *SQLiteStore) SendMessage(fromID, toID int64, body string, fileName, fil
 	return res.LastInsertId()
 }
 
-func (s *SQLiteStore) Inbox(agentID int64, all bool) ([]Message, error) {
+func (s *SQLiteStore) Inbox(agentID int64, all bool, after *time.Time) ([]Message, error) {
 	query := `
 		SELECT m.id, m.from_id, f.name, m.to_id, t.name, m.body, m.file_name, m.file_path, m.created_at, m.read_at
 		FROM messages m
 		JOIN agents f ON m.from_id = f.id
 		JOIN agents t ON m.to_id = t.id
-		WHERE (m.to_id = ? OR m.to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))`
+		WHERE (m.to_id = ? OR m.from_id = ? OR m.to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))`
+	args := []any{agentID, agentID, agentID}
 	if !all {
 		query += ` AND m.read_at IS NULL`
 	}
+	if after != nil {
+		query += ` AND m.created_at > ?`
+		args = append(args, after.UTC().Format("2006-01-02 15:04:05"))
+	}
 	query += ` ORDER BY m.created_at DESC`
 
-	rows, err := s.db.Query(query, agentID, agentID)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

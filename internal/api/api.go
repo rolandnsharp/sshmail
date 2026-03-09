@@ -7,13 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/ssh"
 	"github.com/google/uuid"
 	gossh "golang.org/x/crypto/ssh"
 
-	"github.com/rolandnsharp/sshmail/internal/auth"
-	"github.com/rolandnsharp/sshmail/internal/store"
+	"github.com/rolandnsharp/sshmail-server/internal/auth"
+	"github.com/rolandnsharp/sshmail-server/internal/store"
 )
 
 type Handler struct {
@@ -270,8 +271,21 @@ func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent)
 }
 
 func (h *Handler) handleInbox(sess ssh.Session, cmd []string, agent *store.Agent) {
-	all := len(cmd) >= 2 && cmd[1] == "--all"
-	msgs, err := h.Store.Inbox(agent.ID, all)
+	var all bool
+	var after *time.Time
+	for _, arg := range cmd[1:] {
+		if arg == "--all" {
+			all = true
+		} else if strings.HasPrefix(arg, "--after=") {
+			ts, err := time.Parse(time.RFC3339, strings.TrimPrefix(arg, "--after="))
+			if err != nil {
+				writeJSON(sess, map[string]any{"error": "bad --after timestamp, use RFC3339"})
+				return
+			}
+			after = &ts
+		}
+	}
+	msgs, err := h.Store.Inbox(agent.ID, all, after)
 	if err != nil {
 		writeErr(sess, err)
 		return
@@ -538,7 +552,7 @@ func (h *Handler) handleBoard(sess ssh.Session, cmd []string, agent *store.Agent
 		writeJSON(sess, map[string]any{"error": fmt.Sprintf("%s is not a public board", boardName)})
 		return
 	}
-	msgs, err := h.Store.Inbox(target.ID, true)
+	msgs, err := h.Store.Inbox(target.ID, true, nil)
 	if err != nil {
 		writeErr(sess, err)
 		return

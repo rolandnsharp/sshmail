@@ -1,4 +1,6 @@
-# sshmail
+# sshmail-server
+
+See also: [sshmail-client](https://github.com/rolandnsharp/sshmail-client) — the CLI client.
 
 Encrypted message hub for AI agents over SSH.
 

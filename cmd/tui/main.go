@@ -38,38 +38,82 @@ func getConfig() (host string, port int, keyPath string) {
 
 // --- Styles ---
 
+// Dark theme — inspired by Charmbracelet Crush
+// Deep background with soft purples, warm accents, muted text
 var (
+	// Base colors
+	bgDark      = lipgloss.Color("#1a1b26") // deep navy/purple bg
+	bgPanel     = lipgloss.Color("#24283b") // slightly lighter panel bg
+	bgHighlight = lipgloss.Color("#2f3349") // selected/hover bg
+	border      = lipgloss.Color("#414868") // muted border
+	borderFocus = lipgloss.Color("#7aa2f7") // focused border — soft blue
+	textMuted   = lipgloss.Color("#565f89") // dim text
+	textNormal  = lipgloss.Color("#a9b1d6") // normal text
+	textBright  = lipgloss.Color("#c0caf5") // bright text
+	accent      = lipgloss.Color("#bb9af7") // purple accent
+	accentWarm  = lipgloss.Color("#e0af68") // warm yellow accent
+	accentGreen = lipgloss.Color("#9ece6a") // green for success
+	accentPink  = lipgloss.Color("#f7768e") // pink for unread/alerts
+	accentCyan  = lipgloss.Color("#7dcfff") // cyan for usernames
+
 	sidebarStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(border).
+			BorderBackground(bgDark).
+			Background(bgDark).
+			Foreground(textNormal).
 			Padding(0, 1)
+
+	sidebarFocusStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(borderFocus).
+				BorderBackground(bgDark).
+				Background(bgDark).
+				Foreground(textNormal).
+				Padding(0, 1)
 
 	chatStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(border).
+			BorderBackground(bgDark).
+			Background(bgDark).
 			Padding(0, 1)
 
 	inputStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62"))
+			BorderForeground(border).
+			BorderBackground(bgDark).
+			Background(bgPanel).
+			Foreground(textNormal)
+
+	inputFocusStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderFocus).
+			BorderBackground(bgDark).
+			Background(bgPanel).
+			Foreground(textBright)
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("170"))
+			Foreground(accent).
+			Background(bgDark).
+			Padding(0, 1)
 
 	fromStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("39"))
+			Foreground(accentCyan)
 
 	timeStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
+			Foreground(textMuted)
 
 	unreadStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
+			Foreground(accentPink).
 			Bold(true)
 
 	statusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
+			Foreground(textMuted).
+			Background(bgDark).
+			Padding(0, 1)
 )
 
 // --- Sidebar item ---
@@ -300,7 +344,7 @@ func (m model) View() string {
 	}
 
 	// Status bar
-	status := statusStyle.Render(" " + m.status)
+	status := statusStyle.Width(m.width).Render(" " + m.status)
 
 	// Sidebar
 	sidebarWidth := m.width * 35 / 100
@@ -310,24 +354,38 @@ func (m model) View() string {
 	if sidebarWidth > 40 {
 		sidebarWidth = 40
 	}
-	sidebarContent := sidebarStyle.Width(sidebarWidth - 4).Render(m.sidebar.View())
+	sbStyle := sidebarStyle
+	if m.focus == focusSidebar {
+		sbStyle = sidebarFocusStyle
+	}
+	sidebarContent := sbStyle.Width(sidebarWidth - 4).Render(m.sidebar.View())
 
 	// Chat area
 	chatWidth := m.width - sidebarWidth - 2
-	inputHeight := 5
 
 	// Title
-	title := titleStyle.Render(" " + m.channelTitle())
+	title := titleStyle.Width(chatWidth - 2).Render(m.channelTitle())
 
 	chatContent := chatStyle.Width(chatWidth - 4).Render(m.viewport.View())
-	inputContent := inputStyle.Width(chatWidth - 2).Render(m.input.View())
+
+	inStyle := inputStyle
+	if m.focus == focusInput {
+		inStyle = inputFocusStyle
+	}
+	inputContent := inStyle.Width(chatWidth - 2).Render(m.input.View())
 
 	rightPanel := lipgloss.JoinVertical(lipgloss.Left, title, chatContent, inputContent)
 
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebarContent, rightPanel)
 
-	_ = inputHeight
-	return lipgloss.JoinVertical(lipgloss.Left, main, status)
+	content := lipgloss.JoinVertical(lipgloss.Left, main, status)
+
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Left, lipgloss.Top,
+		content,
+		lipgloss.WithWhitespaceBackground(bgDark),
+	)
 }
 
 // --- Layout ---
@@ -358,17 +416,22 @@ func (m *model) updateLayout() {
 // --- Rendering ---
 
 func (m *model) renderMessages() {
+	bodyStyle := lipgloss.NewStyle().Foreground(textNormal).Background(bgDark)
+	fileStyle := lipgloss.NewStyle().Foreground(accentWarm).Background(bgDark)
+	lineStyle := lipgloss.NewStyle().Background(bgDark).Width(m.viewport.Width)
+
 	var sb strings.Builder
 	// Messages are newest-first from the server, reverse for display
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		msg := m.messages[i]
-		ts := timeStyle.Render(msg.At.Local().Format("15:04"))
-		from := fromStyle.Render(msg.From)
-		body := msg.Body
+		ts := timeStyle.Background(bgDark).Render(msg.At.Local().Format("15:04"))
+		from := fromStyle.Background(bgDark).Render(msg.From)
+		body := bodyStyle.Render(msg.Body)
 		if msg.File != nil {
-			body += fmt.Sprintf(" [file: %s]", *msg.File)
+			body += fileStyle.Render(fmt.Sprintf(" [%s]", *msg.File))
 		}
-		sb.WriteString(fmt.Sprintf("%s %s: %s\n", ts, from, body))
+		line := fmt.Sprintf("%s %s: %s", ts, from, body)
+		sb.WriteString(lineStyle.Render(line) + "\n")
 	}
 	m.viewport.SetContent(sb.String())
 	m.viewport.GotoBottom()
