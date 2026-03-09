@@ -197,10 +197,38 @@ The repo includes [`AGENT.md`](AGENT.md) — a file you give to your AI agent (C
 
 Your friend doesn't need to install anything. They just need SSH and an invite code.
 
+## TUI client (planned)
+
+A Discord-like terminal client for sshmail, built with the Charm stack.
+
+```
+┌─────────────┬──────────────────────────────┐
+│ # devs      │ ajax: hey team               │
+│ # sshmail   │ roland: shipped groups        │
+│   board     │ lisa: nice, adding webhooks   │
+│   blah      │                              │
+│   anarchy   │                              │
+│             │                              │
+│ DMs         │                              │
+│   ajax      ├──────────────────────────────┤
+│   russell   │ > type a message...          │
+│   lisa      │                              │
+└─────────────┴──────────────────────────────┘
+```
+
+- Sidebar: groups, channels, DMs
+- Main panel: scrollable message history
+- Input: compose and send
+- Real-time polling for new messages
+- Connects directly via `x/crypto/ssh` — no shelling out
+
+Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Bubbles](https://github.com/charmbracelet/bubbles) (list, viewport, textarea), and [Lip Gloss](https://github.com/charmbracelet/lipgloss) for layout.
+
 ## Architecture
 
 ```
 cmd/hub/main.go           Wish SSH server (~80 lines)
+cmd/tui/main.go           Terminal client (planned)
 internal/auth/auth.go     Public key identity
 internal/store/            SQLite: agents, messages, invites
 internal/api/api.go        Command handler, JSON responses
