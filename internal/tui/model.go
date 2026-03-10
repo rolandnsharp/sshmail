@@ -200,7 +200,7 @@ func NewModel(backend Backend) Model {
 		Padding(0, 0, 0, 2)
 	sidebar := list.New([]list.Item{}, delegate, 0, 0)
 	sidebar.SetShowTitle(true)
-	sidebar.Title = "sshmail"
+	sidebar.Title = "sshmail.dev"
 	sidebar.Styles.Title = lipgloss.NewStyle().
 		Foreground(accent).
 		Bold(true).
@@ -295,19 +295,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = focusSidebar
 			m.input.Blur()
 			m.sidebar.SetDelegate(activeDelegate())
+			// Sidebar layout: border(1) + padding(1) + title(1) + title padding-bottom(1) = 4 lines before items
+			// The list also has a 1-line gap after title internally
+			topOffset := 5
+			clickedItem := msg.Y - topOffset
+			if clickedItem >= 0 && clickedItem < len(m.sidebar.Items()) {
+				m.sidebar.Select(clickedItem)
+				if cmd := m.syncSelection(); cmd != nil {
+					return m, cmd
+				}
+			}
+			m.status = ""
 		}
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "esc":
-			if m.focus == focusInput {
-				m.focus = focusSidebar
-				m.input.Blur()
-				m.sidebar.SetDelegate(activeDelegate())
-				return m, nil
-			}
+		case "ctrl+c", "esc":
 			return m, tea.Quit
 		case "tab":
 			if m.focus == focusSidebar {
@@ -446,8 +449,6 @@ func (m Model) View() string {
 		return "loading..."
 	}
 
-	status := statusStyle.Width(m.width).Render(" " + m.status)
-
 	sidebarWidth := m.width * 35 / 100
 	if sidebarWidth < 20 {
 		sidebarWidth = 20
@@ -475,15 +476,8 @@ func (m Model) View() string {
 	rightPanel := lipgloss.JoinVertical(lipgloss.Left, title, chatContent, inputContent)
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebarContent, rightPanel)
 
-	help := helpStyle.Width(m.width).Render(m.helpText())
-	content := lipgloss.JoinVertical(lipgloss.Left, main, status, help)
-
-	return lipgloss.Place(
-		m.width, m.height,
-		lipgloss.Left, lipgloss.Top,
-		content,
-		lipgloss.WithWhitespaceBackground(bgDark),
-	)
+	statusAndHelp := statusStyle.Width(m.width).Render(" " + m.status + "  " + m.helpText())
+	return lipgloss.JoinVertical(lipgloss.Left, main, statusAndHelp)
 }
 
 // syncSelection loads the channel matching the current sidebar highlight.
@@ -506,13 +500,13 @@ func (m Model) helpText() string {
 	sep := " · "
 	if m.focus == focusInput {
 		return helpKeyStyle.Render("enter") + " send" + sep +
-			helpKeyStyle.Render("esc") + " sidebar" + sep +
-			helpKeyStyle.Render("ctrl+c") + " quit"
+			helpKeyStyle.Render("tab") + " sidebar" + sep +
+			helpKeyStyle.Render("esc") + " escape"
 	}
 	return helpKeyStyle.Render("↑↓") + " navigate" + sep +
 		helpKeyStyle.Render("enter") + " select" + sep +
 		helpKeyStyle.Render("tab") + " write" + sep +
-		helpKeyStyle.Render("esc") + " quit"
+		helpKeyStyle.Render("esc") + " escape"
 }
 
 // --- Layout ---
@@ -527,15 +521,18 @@ func (m *Model) updateLayout() {
 	}
 
 	chatWidth := m.width - sidebarWidth - 8
-	// 2 status/help lines + 1 title + 3 input + 6 borders/padding
-	chatHeight := m.height - 18
+	// 1 status/help line + 1 title + 3 input + borders/padding
+	chatHeight := m.height - 14
 
 	if chatHeight < 5 {
 		chatHeight = 5
 	}
 
-	// Sidebar list height so rendered sidebar (list + border/padding) matches right panel
-	sidebarHeight := chatHeight + 4
+	// Sidebar list height: right panel = title(1) + chat(chatHeight+2border) + input(3+2border) = chatHeight+8
+	// Sidebar rendered = list + border(2) + padding(2) = list + 4
+	// list includes title(2 lines). So list height = chatHeight + 8 - 4 = chatHeight + 4
+	// But title takes 2 lines inside list, so item area = chatHeight + 2
+	sidebarHeight := chatHeight + 2
 	m.sidebar.SetSize(sidebarWidth-4, sidebarHeight)
 	m.viewport.Width = chatWidth
 	m.viewport.Height = chatHeight
