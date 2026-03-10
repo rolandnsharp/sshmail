@@ -47,7 +47,14 @@ func (r *rateLimiter) allow(fingerprint string) bool {
 	now := time.Now()
 	cutoff := now.Add(-r.window)
 
-	// Prune old entries
+	// Evict stale keys every call (map is small, window is 1hr)
+	for k, times := range r.sends {
+		if len(times) > 0 && times[len(times)-1].Before(cutoff) {
+			delete(r.sends, k)
+		}
+	}
+
+	// Prune old entries for this fingerprint
 	times := r.sends[fingerprint]
 	valid := times[:0]
 	for _, t := range times {
@@ -359,12 +366,6 @@ func (h *Handler) handleAnonSend(sess ssh.Session, cmd []string) {
 	}
 	fingerprint := gossh.FingerprintSHA256(pubKey)
 
-	// Rate limit anonymous senders
-	if !h.limiter.allow(fingerprint) {
-		writeJSON(sess, map[string]any{"error": "rate limit exceeded — 10 messages per hour for unregistered senders"})
-		return
-	}
-
 	toName := cmd[1]
 	to, err := h.Store.AgentByName(toName)
 	if err != nil {
@@ -390,6 +391,12 @@ func (h *Handler) handleAnonSend(sess ssh.Session, cmd []string) {
 	}
 	if blocked {
 		writeJSON(sess, map[string]any{"error": "blocked"})
+		return
+	}
+
+	// Rate limit anonymous senders (after recipient checks so typos don't burn quota)
+	if !h.limiter.allow(fingerprint) {
+		writeJSON(sess, map[string]any{"error": "rate limit exceeded — 10 messages per hour for unregistered senders"})
 		return
 	}
 

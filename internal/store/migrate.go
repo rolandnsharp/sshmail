@@ -12,7 +12,7 @@ func migrate(db *sql.DB) error {
 			bio TEXT NOT NULL DEFAULT '',
 			public BOOLEAN NOT NULL DEFAULT 0,
 			guest BOOLEAN NOT NULL DEFAULT 0,
-			accept_anon BOOLEAN NOT NULL DEFAULT 1,
+			accept_anon BOOLEAN NOT NULL DEFAULT 0,
 			joined_at DATETIME NOT NULL DEFAULT (datetime('now')),
 			invited_by INTEGER NOT NULL DEFAULT 0
 		);
@@ -60,7 +60,7 @@ func migrate(db *sql.DB) error {
 	}
 	// Add columns if missing (for existing databases)
 	db.Exec(`ALTER TABLE agents ADD COLUMN guest BOOLEAN NOT NULL DEFAULT 0`)
-	db.Exec(`ALTER TABLE agents ADD COLUMN accept_anon BOOLEAN NOT NULL DEFAULT 1`)
+	db.Exec(`ALTER TABLE agents ADD COLUMN accept_anon BOOLEAN NOT NULL DEFAULT 0`)
 
 	// Blocks table — agents can block specific fingerprints
 	db.Exec(`CREATE TABLE IF NOT EXISTS blocks (

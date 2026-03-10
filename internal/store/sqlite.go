@@ -97,7 +97,7 @@ func (s *SQLiteStore) UpdateBio(id int64, bio string) error {
 }
 
 func (s *SQLiteStore) ListAgents() ([]Agent, error) {
-	rows, err := s.db.Query(`SELECT id, name, fingerprint, public_key, bio, public, guest, accept_anon, joined_at, invited_by FROM agents ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, fingerprint, public_key, bio, public, guest, accept_anon, joined_at, invited_by FROM agents WHERE guest = 0 ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
