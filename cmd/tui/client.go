@@ -29,6 +29,7 @@ type Message struct {
 type Agent struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
+	Fingerprint string  `json:"fingerprint,omitempty"`
 	Bio       string    `json:"bio,omitempty"`
 	Public    bool      `json:"public,omitempty"`
 	JoinedAt  time.Time `json:"joined_at"`

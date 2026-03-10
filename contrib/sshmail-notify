@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+command -v sshmail >/dev/null 2>&1 || {
+  echo "sshmail client not found in PATH" >&2
+  exit 1
+}
+
+last=0
+
+while true; do
+  count_raw="$(sshmail poll 2>/dev/null || true)"
+  count="$(printf '%s\n' "$count_raw" | grep -oE '[0-9]+' | head -1)"
+  count="${count:-0}"
+
+  if [[ "$count" -gt "$last" ]]; then
+    pull_output="$(sshmail pull 2>/dev/null || true)"
+    if [[ "$last" -gt 0 ]]; then
+      new_count=$((count - last))
+      preview="$(printf '%s\n' "$pull_output" | grep '^  ' | head -3 || true)"
+
+      if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u critical "sshmail - $new_count new" "$preview" -i mail-unread
+      fi
+      if command -v pw-play >/dev/null 2>&1; then
+        pw-play /usr/share/sounds/freedesktop/stereo/message-new-instant.oga 2>/dev/null &
+      fi
+    fi
+  fi
+
+  last="$count"
+  sleep 5
+done

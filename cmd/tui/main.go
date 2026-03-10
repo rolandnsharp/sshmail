@@ -114,13 +114,22 @@ var (
 			Foreground(textMuted).
 			Background(bgDark).
 			Padding(0, 1)
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(textMuted).
+			Background(bgDark).
+			Padding(0, 1)
+
+	sectionStyle = lipgloss.NewStyle().
+			Foreground(accentWarm).
+			Bold(true)
 )
 
 // --- Sidebar item ---
 
 type channelItem struct {
 	name    string
-	kind    string // "group", "board", "dm"
+	kind    string // "group", "board", "dm", "inbox", "allmail"
 	unread  int
 	public  bool
 }
@@ -141,6 +150,14 @@ func (i channelItem) Title() string {
 
 func (i channelItem) Description() string { return "" }
 func (i channelItem) FilterValue() string { return i.name }
+
+type sectionItem struct {
+	title string
+}
+
+func (i sectionItem) Title() string       { return sectionStyle.Render(i.title) }
+func (i sectionItem) Description() string { return "" }
+func (i sectionItem) FilterValue() string { return i.title }
 
 // --- Messages ---
 
@@ -175,9 +192,12 @@ type model struct {
 	input    textarea.Model
 	channels []channelItem
 	messages []Message
+	agents   []Agent
 	selected string // currently selected channel/DM name
 	selKind  string // "board", "group", "dm", "inbox"
 	status   string
+	unread   int
+	unreadBy map[string]int
 	err      error
 }
 
@@ -212,7 +232,8 @@ func initialModel(client *Client) model {
 		input:    input,
 		selected: "inbox",
 		selKind:  "inbox",
-		status:   "connecting...",
+		status:   "connecting... enter opens Inbox, tab switches to compose",
+		unreadBy: map[string]int{},
 	}
 }
 
@@ -220,7 +241,7 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		m.fetchWhoami,
 		m.fetchAgents,
-		m.fetchInbox,
+		m.fetchUnreadInbox,
 		m.pollTick(),
 	)
 }
@@ -268,6 +289,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = fmt.Sprintf("loading %s...", item.name)
 				return m, m.fetchChannel(item)
 			}
+		case "up", "k":
+			if m.focus == focusSidebar {
+				var cmd tea.Cmd
+				m.sidebar, cmd = m.sidebar.Update(msg)
+				m.skipSectionSelection(-1)
+				return m, cmd
+			}
+		case "down", "j":
+			if m.focus == focusSidebar {
+				var cmd tea.Cmd
+				m.sidebar, cmd = m.sidebar.Update(msg)
+				m.skipSectionSelection(1)
+				return m, cmd
+			}
 		case "esc":
 			if m.focus == focusInput {
 				m.focus = focusSidebar
@@ -290,28 +325,57 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case whoamiMsg:
-		m.me = msg.agent
-		m.status = fmt.Sprintf("logged in as %s", m.me.Name)
+			m.me = msg.agent
+			m.status = fmt.Sprintf("logged in as %s", m.me.Name)
+			if len(m.agents) > 0 {
+				m.buildChannelList(m.agents)
+				m.updateLayout()
+			}
 
 	case agentsMsg:
-		m.buildChannelList(msg.agents)
-		m.updateLayout()
+			m.agents = msg.agents
+			m.buildChannelList(msg.agents)
+			m.updateLayout()
 
-	case inboxMsg:
-		m.messages = msg.messages
-		m.renderMessages()
-		if m.selKind == "inbox" {
-			m.status = fmt.Sprintf("inbox — %d messages", len(msg.messages))
-		}
+		case inboxMsg:
+				if m.selKind == "inbox" || m.selKind == "allmail" {
+					m.messages = msg.messages
+					m.renderMessages()
+					if m.selKind == "allmail" {
+						m.status = fmt.Sprintf("all mail — %d messages", len(msg.messages))
+					} else if m.unread > 0 {
+						m.status = fmt.Sprintf("inbox — %d unread messages", len(msg.messages))
+					} else {
+						m.status = fmt.Sprintf("inbox — %d messages", len(msg.messages))
+				}
+			}
+			m.recomputeUnreadMap(msg.messages)
+			m.updateUnreadBadge()
 
 	case boardMsg:
-		m.messages = msg.messages
-		m.renderMessages()
+			m.messages = msg.messages
+			m.renderMessages()
 		m.status = fmt.Sprintf("%s — %d messages", m.selected, len(msg.messages))
 
-	case pollMsg:
-		m.status = fmt.Sprintf("%s — %d unread", m.agentName(), msg.unread)
-		cmds = append(cmds, m.pollTick())
+		case pollMsg:
+				m.unread = msg.unread
+				if m.selKind == "allmail" {
+					cmds = append(cmds, m.fetchInbox)
+				} else {
+					cmds = append(cmds, m.fetchUnreadInbox)
+				}
+				if m.selKind == "inbox" {
+					if msg.unread > 0 {
+						m.status = fmt.Sprintf("%s — %d unread (Inbox is selected)", m.agentName(), msg.unread)
+					} else {
+						m.status = fmt.Sprintf("%s — inbox clear", m.agentName())
+					}
+				} else if m.selKind == "allmail" {
+					m.status = fmt.Sprintf("%s — %d unread (All Mail stays open)", m.agentName(), msg.unread)
+				} else {
+					m.status = fmt.Sprintf("%s — %d unread (select Inbox and press Enter)", m.agentName(), msg.unread)
+				}
+			cmds = append(cmds, m.pollTick())
 
 	case pollErrMsg:
 		cmds = append(cmds, m.pollTick())
@@ -345,6 +409,7 @@ func (m model) View() string {
 
 	// Status bar
 	status := statusStyle.Width(m.width).Render(" " + m.status)
+	help := helpStyle.Width(m.width).Render(" enter open/send  tab switch focus  esc sidebar  q quit ")
 
 	// Sidebar
 	sidebarWidth := m.width * 35 / 100
@@ -378,7 +443,7 @@ func (m model) View() string {
 
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebarContent, rightPanel)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, main, status)
+	content := lipgloss.JoinVertical(lipgloss.Left, main, help, status)
 
 	return lipgloss.Place(
 		m.width, m.height,
@@ -419,6 +484,11 @@ func (m *model) renderMessages() {
 	bodyStyle := lipgloss.NewStyle().Foreground(textNormal).Background(bgDark)
 	fileStyle := lipgloss.NewStyle().Foreground(accentWarm).Background(bgDark)
 	lineStyle := lipgloss.NewStyle().Background(bgDark).Width(m.viewport.Width)
+	metaStyle := lipgloss.NewStyle().Background(bgDark)
+	bodyWidth := m.viewport.Width - 2
+	if bodyWidth < 20 {
+		bodyWidth = 20
+	}
 
 	var sb strings.Builder
 	// Messages are newest-first from the server, reverse for display
@@ -426,12 +496,13 @@ func (m *model) renderMessages() {
 		msg := m.messages[i]
 		ts := timeStyle.Background(bgDark).Render(msg.At.Local().Format("15:04"))
 		from := fromStyle.Background(bgDark).Render(msg.From)
-		body := bodyStyle.Render(msg.Body)
+		header := metaStyle.Render(fmt.Sprintf("%s %s", ts, from))
+		body := bodyStyle.Width(bodyWidth).Render(strings.TrimSpace(msg.Body))
 		if msg.File != nil {
-			body += fileStyle.Render(fmt.Sprintf(" [%s]", *msg.File))
+			body += "\n" + fileStyle.Render(fmt.Sprintf("attachment: %s", *msg.File))
 		}
-		line := fmt.Sprintf("%s %s: %s", ts, from, body)
-		sb.WriteString(lineStyle.Render(line) + "\n")
+		sb.WriteString(lineStyle.Render(header) + "\n")
+		sb.WriteString(lineStyle.Render(body) + "\n\n")
 	}
 	m.viewport.SetContent(sb.String())
 	m.viewport.GotoBottom()
@@ -440,6 +511,9 @@ func (m *model) renderMessages() {
 func (m model) channelTitle() string {
 	if m.selKind == "inbox" {
 		return "inbox"
+	}
+	if m.selKind == "allmail" {
+		return "all mail"
 	}
 	prefix := ""
 	switch m.selKind {
@@ -465,35 +539,105 @@ func (m model) agentName() string {
 func (m *model) buildChannelList(agents []Agent) {
 	var items []list.Item
 
-	// Inbox first
-	items = append(items, channelItem{name: "inbox", kind: "inbox"})
+	// Inbox views first
+	items = append(items, channelItem{name: "inbox", kind: "inbox", unread: m.unread})
+	items = append(items, channelItem{name: "all mail", kind: "allmail"})
 
-	// Groups and public channels
+	// Public boards
 	var boards []channelItem
+	var groups []channelItem
 	var dms []channelItem
 
 	for _, a := range agents {
 		if a.Name == "board" || a.Public {
-			boards = append(boards, channelItem{name: a.Name, kind: "board", public: true})
+			boards = append(boards, channelItem{name: a.Name, kind: "board", public: true, unread: m.unreadBy[a.Name]})
+			continue
+		}
+		if strings.HasPrefix(a.Fingerprint, "group:") {
+			groups = append(groups, channelItem{name: a.Name, kind: "group", unread: m.unreadBy[a.Name]})
 		}
 	}
 
-	// DMs: agents that are real people (have invitedBy or are not public/groups)
+	// DMs: real people excluding self and non-public groups.
 	for _, a := range agents {
-		if !a.Public && a.InvitedBy > 0 && m.me != nil && a.Name != m.me.Name {
-			dms = append(dms, channelItem{name: a.Name, kind: "dm"})
+		if !a.Public && !strings.HasPrefix(a.Fingerprint, "group:") && a.InvitedBy > 0 && m.me != nil && a.Name != m.me.Name {
+			dms = append(dms, channelItem{name: a.Name, kind: "dm", unread: m.unreadBy[a.Name]})
 		}
 	}
 
-	for _, b := range boards {
-		items = append(items, b)
+	if len(boards) > 0 {
+		items = append(items, sectionItem{title: "Boards"})
+		for _, b := range boards {
+			items = append(items, b)
+		}
 	}
-	for _, d := range dms {
-		items = append(items, d)
+	if len(groups) > 0 {
+		items = append(items, sectionItem{title: "Groups"})
+		for _, g := range groups {
+			items = append(items, g)
+		}
+	}
+	if len(dms) > 0 {
+		items = append(items, sectionItem{title: "Direct Messages"})
+		for _, d := range dms {
+			items = append(items, d)
+		}
 	}
 
-	m.channels = append(boards, dms...)
+	m.channels = append(append([]channelItem{}, boards...), append(groups, dms...)...)
 	m.sidebar.SetItems(items)
+}
+
+func (m *model) updateUnreadBadge() {
+	items := m.sidebar.Items()
+	if len(items) == 0 {
+		return
+	}
+	for idx, item := range items {
+		ch, ok := item.(channelItem)
+		if !ok {
+			continue
+		}
+		if ch.kind == "inbox" {
+			ch.unread = m.unread
+		} else if ch.kind == "allmail" {
+			ch.unread = 0
+		} else {
+			ch.unread = m.unreadBy[ch.name]
+		}
+		items[idx] = ch
+	}
+	m.sidebar.SetItems(items)
+}
+
+func (m *model) recomputeUnreadMap(msgs []Message) {
+	next := map[string]int{}
+	for _, msg := range msgs {
+		target := msg.To
+		if m.me != nil && msg.To == m.me.Name {
+			target = msg.From
+		}
+		next[target]++
+	}
+	m.unreadBy = next
+	if len(m.agents) > 0 {
+		m.buildChannelList(m.agents)
+	}
+}
+
+func (m *model) skipSectionSelection(direction int) {
+	items := m.sidebar.Items()
+	if len(items) == 0 {
+		return
+	}
+	idx := m.sidebar.Index()
+	for idx >= 0 && idx < len(items) {
+		if _, ok := items[idx].(sectionItem); !ok {
+			m.sidebar.Select(idx)
+			return
+		}
+		idx += direction
+	}
 }
 
 // --- Commands ---
@@ -522,6 +666,14 @@ func (m model) fetchInbox() tea.Msg {
 	return inboxMsg{msgs}
 }
 
+func (m model) fetchUnreadInbox() tea.Msg {
+	msgs, err := m.client.Inbox(false)
+	if err != nil {
+		return errMsg{err}
+	}
+	return inboxMsg{msgs}
+}
+
 func (m model) fetchChannel(item channelItem) tea.Cmd {
 	return func() tea.Msg {
 		switch item.kind {
@@ -533,6 +685,12 @@ func (m model) fetchChannel(item channelItem) tea.Cmd {
 			return boardMsg{msgs}
 		case "inbox":
 			msgs, err := m.client.Inbox(false)
+			if err != nil {
+				return errMsg{err}
+			}
+			return inboxMsg{msgs}
+		case "allmail":
+			msgs, err := m.client.Inbox(true)
 			if err != nil {
 				return errMsg{err}
 			}
@@ -558,7 +716,7 @@ func (m model) fetchChannel(item channelItem) tea.Cmd {
 func (m model) sendMessage(text string) tea.Cmd {
 	return func() tea.Msg {
 		target := m.selected
-		if m.selKind == "inbox" {
+		if m.selKind == "inbox" || m.selKind == "allmail" {
 			return errMsg{fmt.Errorf("select a channel or DM to send")}
 		}
 		result, err := m.client.Send(target, text)
