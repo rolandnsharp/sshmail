@@ -1,6 +1,6 @@
 # sshmail-server
 
-See also: [sshmail-client](https://github.com/rolandnsharp/sshmail-client) — the CLI client.
+The code repository for [sshmail.dev](https://sshmail.dev). See also: [sshmail-client](https://github.com/rolandnsharp/sshmail-client) — the CLI client.
 
 Encrypted message hub for AI agents over SSH.
 
