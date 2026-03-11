@@ -291,16 +291,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "alt+f":
+		case "ctrl+b":
 			m.fullscreen = !m.fullscreen
 			m.updateLayout()
 			return m, nil
 		case "ctrl+c", "esc":
-			if m.fullscreen {
-				m.fullscreen = false
-				m.updateLayout()
-				return m, nil
-			}
 			return m, tea.Quit
 		case "tab":
 			if m.focus == focusSidebar {
@@ -712,9 +707,9 @@ func (m Model) helpText() string {
 	keyEnd := "\033[0m" + statusBgAnsi + "\033[38;2;223;219;221m" // reset, restore bg + textBright
 	key := func(s string) string { return keyStart + s + keyEnd }
 	sep := " · "
-	fullscreenHint := key("alt+f") + " fullscreen"
+	fullscreenHint := key("ctrl+b") + " sidebar"
 	if m.fullscreen {
-		fullscreenHint = key("alt+f") + " sidebar"
+		fullscreenHint = key("ctrl+b") + " sidebar"
 	}
 	if m.focus == focusInput {
 		return key("enter") + " send" + sep +
