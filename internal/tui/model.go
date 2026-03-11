@@ -146,7 +146,8 @@ type Model struct {
 	watchChan chan WatchEvent
 	repoFiles []string
 	agents    []Agent
-	online    map[string]bool
+	online     map[string]bool
+	fullscreen bool
 }
 
 func NewModel(backend Backend) Model {
@@ -290,7 +291,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "alt+f":
+			m.fullscreen = !m.fullscreen
+			m.updateLayout()
+			return m, nil
 		case "ctrl+c", "esc":
+			if m.fullscreen {
+				m.fullscreen = false
+				m.updateLayout()
+				return m, nil
+			}
 			return m, tea.Quit
 		case "tab":
 			if m.focus == focusSidebar {
@@ -466,20 +476,23 @@ func (m Model) View() string {
 		return "loading..."
 	}
 
-	sidebarWidth := m.sidebarWidth()
-	chatWidth := m.width - sidebarWidth - 1 // 1 for divider
 	panelHeight := m.panelHeight()
 	inputHeight := m.input.Height()
 	chatHeight := panelHeight - 1 - inputHeight // 1 for channel title, rest for input
 
-	sidebarLines := m.renderSidebar(sidebarWidth, panelHeight)
-	rightLines := m.renderRightPanel(chatWidth, chatHeight, panelHeight, inputHeight)
-
-	// Build all lines: panel rows + status
-	sep := lipgloss.NewStyle().Foreground(divider).Background(bg).Render("│")
 	allLines := make([]string, 0, m.height)
-	for i := 0; i < panelHeight; i++ {
-		allLines = append(allLines, sidebarLines[i]+sep+rightLines[i])
+	if m.fullscreen {
+		rightLines := m.renderRightPanel(m.width, chatHeight, panelHeight, inputHeight)
+		allLines = append(allLines, rightLines...)
+	} else {
+		sidebarWidth := m.sidebarWidth()
+		chatWidth := m.width - sidebarWidth - 1 // 1 for divider
+		sidebarLines := m.renderSidebar(sidebarWidth, panelHeight)
+		rightLines := m.renderRightPanel(chatWidth, chatHeight, panelHeight, inputHeight)
+		sep := lipgloss.NewStyle().Foreground(divider).Background(bg).Render("│")
+		for i := 0; i < panelHeight; i++ {
+			allLines = append(allLines, sidebarLines[i]+sep+rightLines[i])
+		}
 	}
 	allLines = append(allLines, m.renderStatusBar())
 
@@ -699,23 +712,35 @@ func (m Model) helpText() string {
 	keyEnd := "\033[0m" + statusBgAnsi + "\033[38;2;223;219;221m" // reset, restore bg + textBright
 	key := func(s string) string { return keyStart + s + keyEnd }
 	sep := " · "
+	fullscreenHint := key("alt+f") + " fullscreen"
+	if m.fullscreen {
+		fullscreenHint = key("alt+f") + " sidebar"
+	}
 	if m.focus == focusInput {
 		return key("enter") + " send" + sep +
 			key("alt+enter") + " newline" + sep +
+			fullscreenHint + sep +
 			key("tab") + " sidebar" + sep +
 			key("esc") + " escape"
 	}
 	return key("↑↓") + " navigate" + sep +
 		key("enter") + " select" + sep +
 		key("tab") + " write" + sep +
+		fullscreenHint + sep +
 		key("esc") + " escape"
 }
 
 // --- Layout ---
 
 func (m *Model) updateLayout() {
-	sidebarWidth := m.sidebarWidth()
-	chatWidth := m.width - sidebarWidth - 3 // 1 divider + 2 padding
+	var chatWidth int
+	if m.fullscreen {
+		chatWidth = m.width - 2 // 2 padding
+	} else {
+		sidebarWidth := m.sidebarWidth()
+		chatWidth = m.width - sidebarWidth - 3 // 1 divider + 2 padding
+		m.sidebar.SetSize(sidebarWidth, m.panelHeight())
+	}
 	panelHeight := m.panelHeight()
 	inputHeight := m.input.Height()
 	chatHeight := panelHeight - 1 - inputHeight // branding row + input rows
@@ -723,7 +748,6 @@ func (m *Model) updateLayout() {
 		chatHeight = 3
 	}
 
-	m.sidebar.SetSize(sidebarWidth, panelHeight)
 	m.viewport.Width = chatWidth
 	m.viewport.Height = chatHeight
 	m.input.SetWidth(chatWidth)
