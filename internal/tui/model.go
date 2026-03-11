@@ -194,27 +194,25 @@ func NewModel(backend Backend) Model {
 
 	vp := viewport.New(0, 0)
 
-	input.Focus()
-	sidebar.SetDelegate(dimDelegate())
+	input.Blur()
+	sidebar.SetDelegate(activeDelegate())
 
 	return Model{
 		backend:  backend,
-		focus:    focusInput,
+		focus:    focusSidebar,
 		sidebar:  sidebar,
 		viewport: vp,
 		input:    input,
-		selected: "inbox",
-		selKind:  "inbox",
+		selected: "readme",
+		selKind:  "readme",
 		status:   "connecting...",
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		m.input.Focus(),
 		m.fetchWhoami,
 		m.fetchAgents,
-		m.fetchInbox,
 		m.startWatch(),
 		m.fetchRepoFiles,
 	)
@@ -346,7 +344,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			// Enter on sidebar switches to input for the selected channel
-			if item, ok := m.sidebar.SelectedItem().(channelItem); ok && item.kind != "header" && item.kind != "file" && item.kind != "hint" {
+			if item, ok := m.sidebar.SelectedItem().(channelItem); ok && item.kind != "header" && item.kind != "file" && item.kind != "hint" && item.kind != "spacer" {
 				m.focus = focusInput
 				cmd := m.input.Focus()
 				m.sidebar.SetDelegate(dimDelegate())
@@ -385,6 +383,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents = msg.agents
 		m.buildChannelList(msg.agents)
 		m.updateLayout()
+		if m.selKind == "readme" {
+			m.sidebar.Select(1) // index 1 = readme (after spacer)
+			m.showReadme()
+		}
 
 	case inboxMsg:
 		m.messages = msg.messages
@@ -523,6 +525,10 @@ func (m Model) View() string {
 	sel := m.sidebar.Index()
 	for idx, item := range items {
 		ci := item.(channelItem)
+		if ci.kind == "spacer" {
+			sidebarLines = append(sidebarLines, sbLine("", line))
+			continue
+		}
 		if ci.kind == "header" || ci.kind == "hint" {
 			style := lipgloss.NewStyle().Foreground(textMuted).Bold(true).Background(bg).Padding(0, 1)
 			if ci.kind == "hint" {
@@ -642,7 +648,7 @@ func (m Model) View() string {
 // Returns a fetch command if the selection changed, nil otherwise.
 func (m *Model) syncSelection() tea.Cmd {
 	item, ok := m.sidebar.SelectedItem().(channelItem)
-	if !ok || item.kind == "header" || item.kind == "hint" {
+	if !ok || item.kind == "header" || item.kind == "hint" || item.kind == "spacer" {
 		return nil
 	}
 	if item.name == m.selected && item.kind == m.selKind {
@@ -651,6 +657,10 @@ func (m *Model) syncSelection() tea.Cmd {
 	m.selected = item.name
 	m.selKind = item.kind
 	m.status = fmt.Sprintf("loading %s...", item.name)
+	if item.kind == "readme" {
+		m.showReadme()
+		return nil
+	}
 	if item.kind == "file" {
 		return m.fetchFile(item.name)
 	}
@@ -767,7 +777,26 @@ func (m *Model) renderMessages() {
 	m.viewport.GotoBottom()
 }
 
+func (m *Model) showReadme() {
+	renderer, _ := glamour.NewTermRenderer(
+		glamour.WithWordWrap(m.viewport.Width-4),
+		glamour.WithStylePath("dark"),
+	)
+	content := Readme
+	if renderer != nil {
+		if rendered, err := renderer.Render(content); err == nil {
+			content = rendered
+		}
+	}
+	m.viewport.SetContent(content)
+	m.viewport.GotoTop()
+	m.status = "readme"
+}
+
 func (m Model) channelTitle() string {
+	if m.selKind == "readme" {
+		return "readme"
+	}
 	if m.selKind == "inbox" {
 		return "inbox"
 	}
@@ -795,6 +824,9 @@ func (m Model) agentName() string {
 func (m *Model) buildChannelList(agents []Agent) {
 	var items []list.Item
 
+	items = append(items, channelItem{name: "", kind: "spacer"})
+	items = append(items, channelItem{name: "readme", kind: "readme"})
+	items = append(items, channelItem{name: "", kind: "spacer"})
 	items = append(items, channelItem{name: "inbox", kind: "inbox"})
 
 	var boards []channelItem
@@ -841,7 +873,7 @@ func (m *Model) buildChannelList(agents []Agent) {
 	}
 	if m.me != nil {
 		items = append(items, channelItem{name: "git clone", kind: "hint"})
-		items = append(items, channelItem{name: "sshmail.dev:" + m.me.Name, kind: "hint"})
+		items = append(items, channelItem{name: "ssh.sshmail.dev:" + m.me.Name, kind: "hint"})
 	}
 
 	m.channels = nil
