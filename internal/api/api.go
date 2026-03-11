@@ -15,9 +15,9 @@ import (
 	"github.com/google/uuid"
 	gossh "golang.org/x/crypto/ssh"
 
-	"github.com/rolandnsharp/sshmail-server/internal/auth"
-	"github.com/rolandnsharp/sshmail-server/internal/notify"
-	"github.com/rolandnsharp/sshmail-server/internal/store"
+	"github.com/rolandnsharp/sshmail/internal/auth"
+	"github.com/rolandnsharp/sshmail/internal/notify"
+	"github.com/rolandnsharp/sshmail/internal/store"
 )
 
 // Event is pushed to watchers when something happens.

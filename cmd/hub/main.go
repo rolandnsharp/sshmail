@@ -18,12 +18,12 @@ import (
 	"github.com/charmbracelet/keygen"
 	gossh "golang.org/x/crypto/ssh"
 
-	"github.com/rolandnsharp/sshmail-server/internal/api"
-	"github.com/rolandnsharp/sshmail-server/internal/auth"
-	"github.com/rolandnsharp/sshmail-server/internal/config"
-	"github.com/rolandnsharp/sshmail-server/internal/notify"
-	"github.com/rolandnsharp/sshmail-server/internal/store"
-	"github.com/rolandnsharp/sshmail-server/internal/tui"
+	"github.com/rolandnsharp/sshmail/internal/api"
+	"github.com/rolandnsharp/sshmail/internal/auth"
+	"github.com/rolandnsharp/sshmail/internal/config"
+	"github.com/rolandnsharp/sshmail/internal/notify"
+	"github.com/rolandnsharp/sshmail/internal/store"
+	"github.com/rolandnsharp/sshmail/internal/tui"
 )
 
 func main() {

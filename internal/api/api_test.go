@@ -13,8 +13,8 @@ import (
 
 	"github.com/charmbracelet/ssh"
 
-	"github.com/rolandnsharp/sshmail-server/internal/auth"
-	"github.com/rolandnsharp/sshmail-server/internal/store"
+	"github.com/rolandnsharp/sshmail/internal/auth"
+	"github.com/rolandnsharp/sshmail/internal/store"
 )
 
 // ---------------------------------------------------------------------------

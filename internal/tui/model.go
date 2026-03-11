@@ -17,7 +17,7 @@ import (
 
 // CharmTone palette — matching Crush
 var (
-	bg          = lipgloss.Color("#000000") // Black — base background
+	bg          = lipgloss.Color("#1F1C23") // Crush background
 	bgHighlight = lipgloss.Color("#3A3943") // Charcoal — selected items
 	divider     = lipgloss.Color("#3A3943") // Charcoal — separator line
 	textMuted   = lipgloss.Color("#858392") // Squid
@@ -82,9 +82,9 @@ func (i channelItem) Title() string {
 	}
 	prefix := "  "
 	if i.kind == "group" {
-		prefix = "# "
-	} else if i.kind == "board" {
 		prefix = "@ "
+	} else if i.kind == "board" {
+		prefix = "# "
 	} else if i.kind == "file" {
 		prefix = "  "
 	}
@@ -113,6 +113,7 @@ type sentMsg struct{ id int64 }
 type errMsg struct{ err error }
 type watchEventMsg struct{ event WatchEvent }
 type repoFilesMsg struct{ files []string }
+type fileContentMsg struct{ name, content string }
 
 // --- Focus ---
 
@@ -175,11 +176,12 @@ func NewModel(backend Backend) Model {
 	input := textarea.New()
 	input.Placeholder = "type a message..."
 	input.ShowLineNumbers = false
-	input.SetHeight(2)
+	input.SetHeight(3)
 	input.CharLimit = 4096
 	input.MaxHeight = 6
-	// Shift+Enter inserts newline; Enter handled by us to send
-	input.KeyMap.InsertNewline.SetKeys("shift+enter")
+	// Alt+Enter inserts newline; Enter handled by us to send
+	// (shift+enter doesn't work over SSH — terminals send the same escape code as enter)
+	input.KeyMap.InsertNewline.SetKeys("alt+enter")
 	// Style the input area with theme background
 	inputBg := lipgloss.Color("#2D2C35") // BBQ — input area background
 	input.FocusedStyle.Base = lipgloss.NewStyle().Background(inputBg)
@@ -327,7 +329,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				text := strings.TrimSpace(m.input.Value())
 				if text != "" {
 					m.input.Reset()
-					m.input.SetHeight(2)
+					m.input.SetHeight(3)
 					m.updateLayout()
 					if m.me != nil {
 						optimistic := Message{
@@ -427,6 +429,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("sent #%d", msg.id)
 		cmds = append(cmds, m.fetchChannel(channelItem{name: m.selected, kind: m.selKind}))
 
+	case fileContentMsg:
+		content := msg.content
+		if strings.HasSuffix(msg.name, ".md") {
+			renderer, _ := glamour.NewTermRenderer(
+				glamour.WithWordWrap(m.viewport.Width-4),
+				glamour.WithStylePath("dark"),
+			)
+			if renderer != nil {
+				if rendered, err := renderer.Render(content); err == nil {
+					content = rendered
+				}
+			}
+		}
+		m.viewport.SetContent(content)
+		m.viewport.GotoTop()
+		m.status = fmt.Sprintf("file: %s", msg.name)
+
 	case errMsg:
 		m.err = msg.err
 		m.status = fmt.Sprintf("error: %v", msg.err)
@@ -469,17 +488,25 @@ func (m Model) View() string {
 	}
 
 	// Panel = everything except the status bar at the bottom
-	panelHeight := m.height - 3 // just 1 row for status
+	panelHeight := m.height - 1 // 1 row for status bar
 	if panelHeight < 5 {
 		panelHeight = 5
 	}
-	chatHeight := panelHeight - 2 // 1 for channel title, 1 for input
+	inputHeight := m.input.Height()
+	chatHeight := panelHeight - 1 - inputHeight // 1 for channel title, rest for input
 
 	// Sidebar: first line is branding
 	sidebarLines := make([]string, 0, panelHeight)
-	sidebarLines = append(sidebarLines,
-		lipgloss.NewStyle().Bold(true).Foreground(accent).Background(bgHighlight).
-			Width(sidebarWidth).MaxWidth(sidebarWidth).Render(" sshmail.dev"))
+	// Top bar — raw ANSI for consistent Charple purple background
+	topBarBgAnsi := "\033[48;2;107;80;255m" // Charple #6B50FF
+	topBarFgAnsi := "\033[1;38;2;0;0;0m"    // Black bold
+	brandText := topBarBgAnsi + topBarFgAnsi + " sshmail.dev"
+	brandPad := sidebarWidth - 12 // 12 = len(" sshmail.dev")
+	if brandPad > 0 {
+		brandText += strings.Repeat(" ", brandPad)
+	}
+	brandText += "\033[0m"
+	sidebarLines = append(sidebarLines, brandText)
 	// sbLine renders a single sidebar line, truncated to fit (never wraps)
 	maxText := sidebarWidth - 2 // 2 for padding
 	truncate := func(s string) string {
@@ -509,9 +536,9 @@ func (m Model) View() string {
 		}
 		prefix := "  "
 		if ci.kind == "group" {
-			prefix = "# "
-		} else if ci.kind == "board" {
 			prefix = "@ "
+		} else if ci.kind == "board" {
+			prefix = "# "
 		}
 		label := truncate(prefix + ci.name)
 		if ci.unread > 0 {
@@ -537,21 +564,33 @@ func (m Model) View() string {
 	}
 
 	// Right side: channel title + chat lines + input line
-	chatLineStyle := lipgloss.NewStyle().Background(bg).Width(chatWidth).MaxWidth(chatWidth).Padding(0, 1)
 	rightLines := make([]string, 0, panelHeight)
 	// Channel title as first right line (matches branding on left)
-	rightLines = append(rightLines,
-		lipgloss.NewStyle().Bold(true).Foreground(textBright).Background(bgHighlight).
-			Width(chatWidth).MaxWidth(chatWidth).Render(" "+channelName))
-	// Replace ANSI resets in viewport content to preserve background color
-	bgAnsi := "\033[48;2;0;0;0m" // Black #000000
-	vpContent := strings.ReplaceAll(m.viewport.View(), "\033[0m", "\033[0m"+bgAnsi)
-	chatLines := strings.Split(strings.TrimRight(vpContent, "\n"), "\n")
-	for i := 0; i < chatHeight && i < len(chatLines); i++ {
-		rightLines = append(rightLines, chatLineStyle.Render(chatLines[i]))
+	chanText := topBarBgAnsi + topBarFgAnsi + " " + channelName
+	chanPad := chatWidth - lipgloss.Width(" "+channelName)
+	if chanPad > 0 {
+		chanText += strings.Repeat(" ", chanPad)
 	}
-	for len(rightLines) < chatHeight { // fill up to input
-		rightLines = append(rightLines, chatLineStyle.Render(""))
+	chanText += "\033[0m"
+	rightLines = append(rightLines, chanText)
+	// Render viewport — re-inject black bg after every ANSI reset
+	// Glamour uses \033[m (short form), lipgloss uses \033[0m — normalize then replace
+	bgAnsi := "\033[48;2;31;28;35m"
+	vpContent := m.viewport.View()
+	vpContent = strings.ReplaceAll(vpContent, "\033[0m", "\033[m")  // normalize
+	vpContent = strings.ReplaceAll(vpContent, "\033[m", "\033[m"+bgAnsi)
+	vpLines := strings.Split(vpContent, "\n")
+	for i := 0; i < chatHeight; i++ {
+		if i < len(vpLines) {
+			w := lipgloss.Width(vpLines[i])
+			pad := chatWidth - w
+			if pad < 0 {
+				pad = 0
+			}
+			rightLines = append(rightLines, bgAnsi+vpLines[i]+bgAnsi+strings.Repeat(" ", pad)+"\033[0m")
+		} else {
+			rightLines = append(rightLines, bgAnsi+strings.Repeat(" ", chatWidth)+"\033[0m")
+		}
 	}
 	// Input area at bottom of right panel — use textarea View() for cursor, fix bg with ANSI replacement
 	inputBgColor := lipgloss.Color("#2D2C35") // BBQ
@@ -559,7 +598,6 @@ func (m Model) View() string {
 	inputView := m.input.View()
 	inputView = strings.ReplaceAll(inputView, "\033[0m", "\033[0m"+inputBgAnsi)
 	inputViewLines := strings.Split(inputView, "\n")
-	inputHeight := m.input.Height()
 	if len(inputViewLines) > inputHeight {
 		inputViewLines = inputViewLines[:inputHeight]
 	}
@@ -583,23 +621,28 @@ func (m Model) View() string {
 	}
 	allLines = append(allLines, statusBgAnsi+statusFgAnsi+statusContent+strings.Repeat(" ", statusPad)+"\033[0m")
 
-	// Cap to terminal height
+	// Pad each line to full terminal width and fill to full height
+	bgAnsiPad := "\033[48;2;31;28;35m" // Black
+	for i, l := range allLines {
+		w := lipgloss.Width(l)
+		if w < m.width {
+			allLines[i] = l + bgAnsiPad + strings.Repeat(" ", m.width-w) + "\033[0m"
+		}
+	}
+	for len(allLines) < m.height {
+		allLines = append(allLines, bgAnsiPad+strings.Repeat(" ", m.width)+"\033[0m")
+	}
 	if len(allLines) > m.height {
 		allLines = allLines[:m.height]
 	}
-	// Wrap entire view in a full-screen background
-	return lipgloss.NewStyle().
-		Background(bg).
-		Width(m.width).
-		Height(m.height).
-		Render(strings.Join(allLines, "\n"))
+	return strings.Join(allLines, "\n")
 }
 
 // syncSelection loads the channel matching the current sidebar highlight.
 // Returns a fetch command if the selection changed, nil otherwise.
 func (m *Model) syncSelection() tea.Cmd {
 	item, ok := m.sidebar.SelectedItem().(channelItem)
-	if !ok || item.kind == "header" || item.kind == "file" || item.kind == "hint" {
+	if !ok || item.kind == "header" || item.kind == "hint" {
 		return nil
 	}
 	if item.name == m.selected && item.kind == m.selKind {
@@ -608,6 +651,9 @@ func (m *Model) syncSelection() tea.Cmd {
 	m.selected = item.name
 	m.selKind = item.kind
 	m.status = fmt.Sprintf("loading %s...", item.name)
+	if item.kind == "file" {
+		return m.fetchFile(item.name)
+	}
 	return m.fetchChannel(item)
 }
 
@@ -620,7 +666,7 @@ func (m Model) helpText() string {
 	sep := " · "
 	if m.focus == focusInput {
 		return key("enter") + " send" + sep +
-			key("shift+enter") + " newline" + sep +
+			key("alt+enter") + " newline" + sep +
 			key("tab") + " sidebar" + sep +
 			key("esc") + " escape"
 	}
@@ -642,7 +688,7 @@ func (m *Model) updateLayout() {
 	}
 
 	chatWidth := m.width - sidebarWidth - 3 // 1 divider + 2 padding
-	panelHeight := m.height - 3             // just status bar
+	panelHeight := m.height - 1             // 1 row for status bar
 	inputHeight := m.input.Height()
 	chatHeight := panelHeight - 1 - inputHeight // branding row + input rows
 
@@ -728,9 +774,11 @@ func (m Model) channelTitle() string {
 	prefix := ""
 	switch m.selKind {
 	case "group":
-		prefix = "# "
-	case "board":
 		prefix = "@ "
+	case "board":
+		prefix = "# "
+	case "file":
+		return "📄 " + m.selected
 	}
 	return prefix + m.selected
 }
@@ -759,7 +807,7 @@ func (m *Model) buildChannelList(agents []Agent) {
 			groups = append(groups, channelItem{name: a.Name, kind: "group"})
 		case a.Public:
 			boards = append(boards, channelItem{name: a.Name, kind: "board", public: true})
-		case a.InvitedBy > 0:
+		case a.InvitedBy > 0 || (m.me != nil && a.Name == m.me.Name):
 			dms = append(dms, channelItem{name: a.Name, kind: "dm"})
 		}
 	}
@@ -792,7 +840,8 @@ func (m *Model) buildChannelList(agents []Agent) {
 		items = append(items, channelItem{name: "(empty)", kind: "file"})
 	}
 	if m.me != nil {
-		items = append(items, channelItem{name: "git clone ssh://ssh.sshmail.dev/" + m.me.Name, kind: "hint"})
+		items = append(items, channelItem{name: "git clone", kind: "hint"})
+		items = append(items, channelItem{name: "sshmail.dev:" + m.me.Name, kind: "hint"})
 	}
 
 	m.channels = nil
@@ -824,6 +873,16 @@ func (m Model) fetchRepoFiles() tea.Msg {
 		return repoFilesMsg{nil}
 	}
 	return repoFilesMsg{files}
+}
+
+func (m Model) fetchFile(name string) tea.Cmd {
+	return func() tea.Msg {
+		content, err := m.backend.ReadFile(name)
+		if err != nil {
+			return errMsg{err}
+		}
+		return fileContentMsg{name: name, content: content}
+	}
 }
 
 func (m Model) fetchAgents() tea.Msg {

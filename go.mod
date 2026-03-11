@@ -1,4 +1,4 @@
-module github.com/rolandnsharp/sshmail-server
+module github.com/rolandnsharp/sshmail
 
 go 1.25.8
 

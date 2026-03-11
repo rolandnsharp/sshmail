@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/rolandnsharp/sshmail-server/internal/tui"
+	"github.com/rolandnsharp/sshmail/internal/tui"
 )
 
 func getConfig() (host string, port int, keyPath string) {

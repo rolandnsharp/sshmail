@@ -1,7 +1,9 @@
 package main
 
 import (
-	"github.com/rolandnsharp/sshmail-server/internal/tui"
+	"fmt"
+
+	"github.com/rolandnsharp/sshmail/internal/tui"
 )
 
 // RemoteBackend implements tui.Backend over SSH.
@@ -102,6 +104,10 @@ func (r *RemoteBackend) PollCounts() (*tui.PollResult, error) {
 
 func (r *RemoteBackend) RepoFiles() ([]string, error) {
 	return nil, nil // not available over remote client
+}
+
+func (r *RemoteBackend) ReadFile(name string) (string, error) {
+	return "", fmt.Errorf("file viewing not available over remote client")
 }
 
 func (r *RemoteBackend) Watch(events chan<- tui.WatchEvent) error {

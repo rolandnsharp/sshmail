@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rolandnsharp/sshmail-server/internal/api"
-	"github.com/rolandnsharp/sshmail-server/internal/store"
+	"github.com/rolandnsharp/sshmail/internal/api"
+	"github.com/rolandnsharp/sshmail/internal/store"
 )
 
 // LocalBackend implements Backend using the store directly (server-side).
@@ -185,6 +185,15 @@ func (b *LocalBackend) Watch(events chan<- WatchEvent) error {
 		close(events)
 	}()
 	return nil
+}
+
+func (b *LocalBackend) ReadFile(name string) (string, error) {
+	repoPath := filepath.Join(b.DataDir, "repos", b.Agent.Name+".git")
+	out, err := exec.Command("git", "--git-dir", repoPath, "show", "HEAD:"+name).Output()
+	if err != nil {
+		return "", fmt.Errorf("could not read %s: %w", name, err)
+	}
+	return string(out), nil
 }
 
 func (b *LocalBackend) RepoFiles() ([]string, error) {

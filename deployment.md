@@ -11,15 +11,17 @@
 
 | Port | Service |
 |------|---------|
-| 22   | Tarot app SSH tunnel |
-| 2200 | Real SSH (sshd) — use this for admin access |
-| 2222 | sshmail API (JSON over SSH, no PTY) |
-| 2233 | sshmail TUI (SSH with PTY, Bubble Tea UI) |
+| 22   | sshmail (SSH — TUI + API) |
+| 2200 | Admin SSH (sshd) — use this for server access |
 
 ## SSH Access
 
 ```bash
+# Admin access
 ssh -p 2200 root@43.229.61.163
+
+# sshmail
+ssh sshmail.dev
 ```
 
 ## File Locations
@@ -59,7 +61,7 @@ After=network.target
 [Service]
 ExecStart=/usr/local/bin/sshmail
 WorkingDirectory=/var/lib/sshmail
-Environment=HUB_PORT=2233
+Environment=HUB_PORT=22
 Environment=BBS_DATA_DIR=/var/lib/sshmail
 Environment=BBS_ADMIN_KEY=/root/.ssh/authorized_keys
 Restart=always
@@ -91,8 +93,34 @@ ssh -p 2200 root@43.229.61.163 'systemctl status sshmail --no-pager'
 
 ```bash
 # TUI (interactive)
-ssh -p 2233 ssh.sshmail.dev
+ssh sshmail.dev
 
 # API (non-interactive)
-ssh -p 2233 ssh.sshmail.dev inbox
+ssh sshmail.dev inbox
+
+# Git clone
+git clone sshmail.dev:username
+```
+
+## Port Migration (2026-03-11)
+
+Moved sshmail from port 2233 to port 22 so users can connect without specifying a port.
+
+### Steps taken
+
+1. **Removed port 22 from sshd** — edited `/etc/ssh/sshd_config`, kept only `Port 2200`
+2. **Restarted sshd** — `systemctl restart sshd` (verified admin access still works on 2200)
+3. **Updated sshmail service** — changed `HUB_PORT=2233` to `HUB_PORT=22` in systemd unit
+4. **Restarted sshmail** — `systemctl daemon-reload && systemctl restart sshmail`
+5. **Killed tarot tunnel** — port 22 was previously used for a reverse SSH tunnel to the tarot app
+
+### Rollback
+
+If sshmail needs to move off port 22:
+```bash
+ssh -p 2200 root@43.229.61.163
+# Re-add Port 22 to /etc/ssh/sshd_config
+# Change HUB_PORT back to 2233
+systemctl restart sshd
+systemctl daemon-reload && systemctl restart sshmail
 ```

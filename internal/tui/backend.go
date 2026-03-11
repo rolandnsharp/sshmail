@@ -57,4 +57,5 @@ type Backend interface {
 	PollCounts() (*PollResult, error)
 	Watch(events chan<- WatchEvent) error
 	RepoFiles() ([]string, error)
+	ReadFile(name string) (string, error)
 }

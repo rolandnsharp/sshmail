@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/ssh"
 	gossh "golang.org/x/crypto/ssh"
 
-	"github.com/rolandnsharp/sshmail-server/internal/store"
+	"github.com/rolandnsharp/sshmail/internal/store"
 )
 
 type contextKey string
