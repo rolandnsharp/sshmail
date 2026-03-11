@@ -17,7 +17,7 @@ import (
 
 // CharmTone palette — matching Crush
 var (
-	bg          = lipgloss.Color("#201F26") // Pepper — base background
+	bg          = lipgloss.Color("#000000") // Black — base background
 	bgHighlight = lipgloss.Color("#3A3943") // Charcoal — selected items
 	divider     = lipgloss.Color("#3A3943") // Charcoal — separator line
 	textMuted   = lipgloss.Color("#858392") // Squid
@@ -31,10 +31,11 @@ var (
 
 	fromStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(accentCyan)
+			Foreground(accentGreen)
 
 	timeStyle = lipgloss.NewStyle().
-			Foreground(textMuted)
+			Foreground(accent).
+			Faint(true)
 
 	unreadStyle = lipgloss.NewStyle().
 			Foreground(accentPink).
@@ -522,7 +523,10 @@ func (m Model) View() string {
 	rightLines = append(rightLines,
 		lipgloss.NewStyle().Bold(true).Foreground(textBright).Background(bgHighlight).
 			Width(chatWidth).MaxWidth(chatWidth).Render(" "+channelName))
-	chatLines := strings.Split(strings.TrimRight(m.viewport.View(), "\n"), "\n")
+	// Replace ANSI resets in viewport content to preserve background color
+	bgAnsi := "\033[48;2;0;0;0m" // Black #000000
+	vpContent := strings.ReplaceAll(m.viewport.View(), "\033[0m", "\033[0m"+bgAnsi)
+	chatLines := strings.Split(strings.TrimRight(vpContent, "\n"), "\n")
 	for i := 0; i < chatHeight && i < len(chatLines); i++ {
 		rightLines = append(rightLines, chatLineStyle.Render(chatLines[i]))
 	}
@@ -554,7 +558,12 @@ func (m Model) View() string {
 	if len(allLines) > m.height {
 		allLines = allLines[:m.height]
 	}
-	return strings.Join(allLines, "\n")
+	// Wrap entire view in a full-screen background
+	return lipgloss.NewStyle().
+		Background(bg).
+		Width(m.width).
+		Height(m.height).
+		Render(strings.Join(allLines, "\n"))
 }
 
 // syncSelection loads the channel matching the current sidebar highlight.
@@ -633,9 +642,10 @@ func (m *Model) renderMessages() {
 	var sb strings.Builder
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		msg := m.messages[i]
-		ts := timeStyle.Render(msg.At.Local().Format("15:04"))
-		from := fromStyle.Render(msg.From)
-		header := fmt.Sprintf("%s %s:", ts, from)
+		// Use raw ANSI for foreground-only coloring (no reset that clears background)
+		ts := "\033[38;2;133;131;146m" + msg.At.Local().Format("15:04") + "\033[0m"
+		from := "\033[1;38;2;0;164;255m" + msg.From + ":\033[0m"
+		header := ts + " " + from
 
 		body := msg.Body
 		isSimple := !strings.Contains(body, "\n") && !strings.Contains(body, "```")
