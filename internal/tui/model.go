@@ -29,6 +29,19 @@ var (
 	accentPink  = lipgloss.Color("#EB4268") // Sriracha
 	accentCyan  = lipgloss.Color("#00A4FF") // Malibu
 
+	// Name colors — CharmTone palette for per-user coloring
+	nameColors = [][3]int{
+		{107, 80, 255},  // Charple
+		{255, 96, 255},  // Dolly
+		{104, 255, 214}, // Bok
+		{235, 66, 104},  // Sriracha
+		{0, 164, 255},   // Malibu
+		{255, 175, 100}, // warm orange
+		{150, 206, 180}, // mint
+		{255, 154, 162}, // salmon
+		{184, 147, 255}, // lavender
+	}
+
 	fromStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(accentGreen)
@@ -625,6 +638,19 @@ func (m *Model) updateLayout() {
 }
 
 // wrapText wraps s at word boundaries using lipgloss.
+// nameColorFor returns an ANSI foreground escape for a username, consistent per name.
+func nameColorFor(name string) string {
+	h := 0
+	for _, c := range name {
+		h = h*31 + int(c)
+	}
+	if h < 0 {
+		h = -h
+	}
+	c := nameColors[h%len(nameColors)]
+	return fmt.Sprintf("\033[1;38;2;%d;%d;%dm", c[0], c[1], c[2])
+}
+
 func wrapText(s string, maxWidth int) string {
 	return lipgloss.NewStyle().Width(maxWidth).Render(s)
 }
@@ -642,9 +668,8 @@ func (m *Model) renderMessages() {
 	var sb strings.Builder
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		msg := m.messages[i]
-		// Use raw ANSI for foreground-only coloring (no reset that clears background)
 		ts := "\033[38;2;133;131;146m" + msg.At.Local().Format("15:04") + "\033[0m"
-		from := "\033[1;38;2;0;164;255m" + msg.From + ":\033[0m"
+		from := nameColorFor(msg.From) + msg.From + ":\033[0m"
 		header := ts + " " + from
 
 		body := msg.Body
