@@ -614,7 +614,7 @@ func (m *Model) syncSelection() tea.Cmd {
 func (m Model) helpText() string {
 	// Use raw ANSI to avoid resets that break status bar background
 	statusBgAnsi := "\033[48;2;107;80;255m" // Charple #6B50FF
-	keyStart := "\033[1;38;2;104;255;214m"  // Bok #68FFD6 bold
+	keyStart := "\033[1;38;2;0;0;0m"        // Black bold
 	keyEnd := "\033[0m" + statusBgAnsi + "\033[38;2;223;219;221m" // reset, restore bg + textBright
 	key := func(s string) string { return keyStart + s + keyEnd }
 	sep := " · "
