@@ -704,7 +704,7 @@ func (m *Model) buildChannelList(agents []Agent) {
 			groups = append(groups, channelItem{name: a.Name, kind: "group"})
 		case a.Public:
 			boards = append(boards, channelItem{name: a.Name, kind: "board", public: true})
-		case a.InvitedBy > 0 && m.me != nil && a.Name != m.me.Name:
+		case a.InvitedBy > 0:
 			dms = append(dms, channelItem{name: a.Name, kind: "dm"})
 		}
 	}
