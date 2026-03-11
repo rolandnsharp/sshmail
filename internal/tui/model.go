@@ -574,8 +574,8 @@ func (m Model) View() string {
 		allLines = append(allLines, sidebarLines[i]+sep+rightLines[i])
 	}
 	// Status bar — raw ANSI for consistent background
-	statusBgAnsi := "\033[48;2;58;57;67m"    // bgHighlight #3A3943
-	statusFgAnsi := "\033[38;2;133;131;146m" // textMuted
+	statusBgAnsi := "\033[48;2;107;80;255m"  // Charple #6B50FF
+	statusFgAnsi := "\033[38;2;223;219;221m" // textBright
 	statusContent := " " + m.status + "  " + m.helpText()
 	statusPad := m.width - lipgloss.Width(statusContent)
 	if statusPad < 0 {
@@ -613,9 +613,9 @@ func (m *Model) syncSelection() tea.Cmd {
 
 func (m Model) helpText() string {
 	// Use raw ANSI to avoid resets that break status bar background
-	statusBgAnsi := "\033[48;2;58;57;67m" // bgHighlight #3A3943
-	keyStart := "\033[1;38;2;223;219;221m" // textBright #DFDBDD bold
-	keyEnd := "\033[0m" + statusBgAnsi + "\033[38;2;133;131;146m" // reset, restore bg + textMuted
+	statusBgAnsi := "\033[48;2;107;80;255m" // Charple #6B50FF
+	keyStart := "\033[1;38;2;104;255;214m"  // Bok #68FFD6 bold
+	keyEnd := "\033[0m" + statusBgAnsi + "\033[38;2;223;219;221m" // reset, restore bg + textBright
 	key := func(s string) string { return keyStart + s + keyEnd }
 	sep := " · "
 	if m.focus == focusInput {
