@@ -311,13 +311,7 @@ func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent)
 
 	// If sending to a private group, check membership
 	if !to.Public && to.PublicKey == "" {
-		isMember, err := h.Store.IsGroupMember(to.ID, agent.ID)
-		if err != nil {
-			writeErr(sess, err)
-			return
-		}
-		if !isMember {
-			writeJSON(sess, map[string]any{"error": "you are not a member of this group"})
+		if !h.requireMember(sess, to.ID, agent.ID) {
 			return
 		}
 	}
@@ -616,13 +610,7 @@ func (h *Handler) handleGroup(sess ssh.Session, cmd []string, agent *store.Agent
 		if !ok {
 			return
 		}
-		isMember, err := h.Store.IsGroupMember(grp.ID, agent.ID)
-		if err != nil {
-			writeErr(sess, err)
-			return
-		}
-		if !isMember {
-			writeJSON(sess, map[string]any{"error": "you are not a member of this group"})
+		if !h.requireMember(sess, grp.ID, agent.ID) {
 			return
 		}
 		target, ok := h.requireAgent(sess, cmd[3])
@@ -676,13 +664,7 @@ func (h *Handler) handleGroup(sess ssh.Session, cmd []string, agent *store.Agent
 		if !ok {
 			return
 		}
-		isMember, err := h.Store.IsGroupMember(grp.ID, agent.ID)
-		if err != nil {
-			writeErr(sess, err)
-			return
-		}
-		if !isMember {
-			writeJSON(sess, map[string]any{"error": "you are not a member of this group"})
+		if !h.requireMember(sess, grp.ID, agent.ID) {
 			return
 		}
 		members, err := h.Store.GroupMembers(grp.ID)
@@ -993,6 +975,21 @@ func sanitizeRepoName(name string) string {
 	name = strings.TrimSuffix(name, ".git")
 	name = filepath.Base(name) // prevent path traversal
 	return name
+}
+
+// requireMember checks if an agent is a member of a group and writes an error if not.
+// Returns true if the agent is a member.
+func (h *Handler) requireMember(sess ssh.Session, groupID, agentID int64) bool {
+	isMember, err := h.Store.IsGroupMember(groupID, agentID)
+	if err != nil {
+		writeErr(sess, err)
+		return false
+	}
+	if !isMember {
+		writeJSON(sess, map[string]any{"error": "you are not a member of this group"})
+		return false
+	}
+	return true
 }
 
 // canAccessMessage checks if an agent can access a message (sender, recipient, or group member).

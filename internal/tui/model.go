@@ -62,6 +62,7 @@ var (
 	hintStyle = lipgloss.NewStyle().
 			Foreground(textMuted).
 			Italic(true)
+
 )
 
 // --- Sidebar item ---
@@ -147,22 +148,7 @@ type Model struct {
 }
 
 func NewModel(backend Backend) Model {
-	delegate := list.NewDefaultDelegate()
-	delegate.ShowDescription = false
-	delegate.SetHeight(1)
-	delegate.SetSpacing(0)
-	delegate.Styles.SelectedTitle = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(accent).
-		Foreground(accent).
-		Background(bgHighlight).
-		Bold(true).
-		Padding(0, 0, 0, 1)
-	delegate.Styles.NormalTitle = lipgloss.NewStyle().
-		Foreground(textBright).
-		Background(bg).
-		Padding(0, 0, 0, 2)
-	sidebar := list.New([]list.Item{}, delegate, 0, 0)
+	sidebar := list.New([]list.Item{}, activeDelegate(), 0, 0)
 	sidebar.SetShowTitle(true)
 	sidebar.Title = "sshmail.dev"
 	sidebar.Styles.Title = lipgloss.NewStyle().
@@ -195,7 +181,6 @@ func NewModel(backend Backend) Model {
 	vp := viewport.New(0, 0)
 
 	input.Blur()
-	sidebar.SetDelegate(activeDelegate())
 
 	return Model{
 		backend:  backend,
