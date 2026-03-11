@@ -571,23 +571,30 @@ func (m Model) renderSidebar(sidebarWidth, panelHeight int) []string {
 		if ci.unread > 0 {
 			name += unreadStyle.Render(fmt.Sprintf(" (%d)", ci.unread))
 		}
-		var itemBg lipgloss.Color
 		var itemStyle lipgloss.Style
 		if idx == sel && m.focus == focusSidebar {
-			itemBg = bgHighlight
 			itemStyle = lipgloss.NewStyle().Background(bgHighlight).Foreground(accent).Bold(true).Padding(0, 1)
 		} else if idx == sel {
-			itemBg = bgHighlight
 			itemStyle = lipgloss.NewStyle().Background(bgHighlight).Foreground(textBright).Padding(0, 1)
 		} else {
-			itemBg = bg
 			itemStyle = line.Foreground(textNormal).Padding(0, 1)
 		}
+		// Render the full line first, then inject the green dot via ANSI
+		// without any resets that would break the background
+		rendered := sbLine(prefix+name, itemStyle)
 		if isOnline {
-			dot := lipgloss.NewStyle().Foreground(accentGreen).Background(itemBg).Render("●")
-			prefix = dot + " "
+			// Replace the leading "  " with "● " using ANSI fg-only color change
+			// \033[38;2;r;g;bm sets foreground without resetting background
+			greenFg := "\033[38;2;104;255;214m"
+			restoreFg := "\033[38;2;191;188;200m" // textNormal
+			if idx == sel && m.focus == focusSidebar {
+				restoreFg = "\033[1;38;2;107;80;255m" // accent bold
+			} else if idx == sel {
+				restoreFg = "\033[38;2;223;219;221m" // textBright
+			}
+			rendered = strings.Replace(rendered, "  "+name, greenFg+"●"+restoreFg+" "+name, 1)
 		}
-		lines = append(lines, sbLine(prefix+name, itemStyle))
+		lines = append(lines, rendered)
 	}
 
 	emptyLine := line.Width(sidebarWidth).MaxWidth(sidebarWidth).Render("")
