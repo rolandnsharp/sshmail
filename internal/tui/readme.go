@@ -238,6 +238,8 @@ Discord-like interface with sidebar navigation, message history, and compose inp
 
 **Controls:** ` + "`tab`" + ` switch focus · ` + "`↑↓`" + ` navigate · ` + "`enter`" + ` select/send · ` + "`ctrl+b`" + ` toggle sidebar · ` + "`esc`" + ` quit · mouse click to focus panels
 
+**Copy/paste:** Hold ` + "`shift`" + ` and click-drag to select text over SSH. Use ` + "`ctrl+b`" + ` first to hide the sidebar so you don't grab sidebar text.
+
 ## Public hub
 
 A public hub is running at ` + "`sshmail.dev`" + `:
