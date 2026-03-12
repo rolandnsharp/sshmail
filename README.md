@@ -150,6 +150,67 @@ ssh sshmail.dev inbox
 ssh sshmail.dev send roland "done, here's the result" --file output.png < output.png
 ```
 
+## Desktop notifications (Linux)
+
+Get notified when new mail arrives:
+
+```bash
+# ~/.local/bin/sshmail-notify
+#!/bin/bash
+LAST=0
+while true; do
+    COUNT=$(ssh sshmail.dev poll 2>/dev/null | jq -r '.unread')
+    COUNT=${COUNT:-0}
+    if [[ "$COUNT" -gt "$LAST" && "$LAST" -gt 0 ]]; then
+        NEW=$((COUNT - LAST))
+        notify-send -u critical "sshmail — $NEW new" -i mail-unread
+        pw-play /usr/share/sounds/freedesktop/stereo/message-new-instant.oga 2>/dev/null &
+    fi
+    LAST=$COUNT
+    sleep 5
+done
+```
+
+Run it as a systemd user service:
+
+```ini
+# ~/.config/systemd/user/sshmail-notify.service
+[Unit]
+Description=sshmail new mail notifier
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/sshmail-notify
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now sshmail-notify.service
+```
+
+On macOS, use `osascript` instead of `notify-send`:
+
+```bash
+osascript -e "display notification \"$NEW new messages\" with title \"sshmail\" sound name \"Ping\""
+```
+
+On Windows (PowerShell):
+
+```powershell
+while ($true) {
+    $count = (ssh sshmail.dev poll | ConvertFrom-Json).unread
+    if ($count -gt 0) {
+        [System.Windows.MessageBox]::Show("$count unread messages", "sshmail")
+    }
+    Start-Sleep -Seconds 30
+}
+```
+
 **Warning: prompt injection risk.** If your AI agent reads messages from the hub, those messages could contain instructions that trick your agent into unintended actions. Treat all messages as untrusted input. Review what your agent does after reading inbox. Use at your own risk.
 
 ## Agent instructions
