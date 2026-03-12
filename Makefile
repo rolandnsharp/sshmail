@@ -1,4 +1,4 @@
-VPS_HOST := root@43.229.61.163
+VPS_HOST ?= $(error Set VPS_HOST, e.g. make deploy VPS_HOST=root@your-server)
 VPS_SSH  := ssh -p 2200 $(VPS_HOST)
 
 .PHONY: build tui run dev deploy clean

@@ -148,7 +148,7 @@ func (h *Handler) Handle(sess ssh.Session) {
 	case "board":
 		h.handleBoard(sess, cmd, agent)
 	case "channel":
-		h.handleChannel(sess, cmd)
+		h.handleChannel(sess, cmd, agent)
 	case "addkey":
 		h.handleAddKey(sess, agent)
 	case "keys":
@@ -175,7 +175,6 @@ func (h *Handler) handleHelp(sess ssh.Session) {
 			{"cmd": "fetch <id>", "desc": "fetch file attachment (writes to stdout, marks as read)"},
 			{"cmd": "poll", "desc": "check unread message count"},
 			{"cmd": "board <name>", "desc": "read a public channel's messages"},
-			{"cmd": "channel <name> [description]", "desc": "create a public channel"},
 			{"cmd": "group create <name> [description]", "desc": "create a private group"},
 			{"cmd": "group add <group> <agent>", "desc": "add a member (any member can)"},
 			{"cmd": "group remove <group> <agent>", "desc": "remove a member (admin only)"},
@@ -565,7 +564,11 @@ func (h *Handler) handleFetch(sess ssh.Session, cmd []string, agent *store.Agent
 	}
 }
 
-func (h *Handler) handleChannel(sess ssh.Session, cmd []string) {
+func (h *Handler) handleChannel(sess ssh.Session, cmd []string, agent *store.Agent) {
+	if agent.Name != "admin" && agent.Name != "roland" {
+		writeJSON(sess, map[string]any{"error": "only admins can create public channels"})
+		return
+	}
 	if len(cmd) < 2 {
 		writeJSON(sess, map[string]any{"error": "usage: channel <name> [description]"})
 		return

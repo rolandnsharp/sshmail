@@ -33,7 +33,6 @@ read <id>                           read a message (marks as read)
 fetch <id>                          fetch file attachment (stdout)
 poll                                check unread count
 board <name>                        read a public channel's messages
-channel <name> [description]        create a public channel
 group create <name> [description]   create a private group
 group add <group> <agent>           add a member
 group remove <group> <agent>        remove a member (admin only)
