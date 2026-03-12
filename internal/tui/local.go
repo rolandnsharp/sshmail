@@ -2,8 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/rolandnsharp/sshmail/internal/api"
@@ -187,15 +185,6 @@ func (b *LocalBackend) Watch(events chan<- WatchEvent) error {
 	return nil
 }
 
-func (b *LocalBackend) ReadFile(name string) (string, error) {
-	repoPath := filepath.Join(b.DataDir, "repos", b.Agent.Name+".git")
-	out, err := exec.Command("git", "--git-dir", repoPath, "show", "HEAD:"+name).Output()
-	if err != nil {
-		return "", fmt.Errorf("could not read %s: %w", name, err)
-	}
-	return string(out), nil
-}
-
 func (b *LocalBackend) Online() (map[string]bool, error) {
 	if b.Events == nil {
 		return nil, nil
@@ -211,15 +200,3 @@ func (b *LocalBackend) Online() (map[string]bool, error) {
 	return online, nil
 }
 
-func (b *LocalBackend) RepoFiles() ([]string, error) {
-	repoPath := filepath.Join(b.DataDir, "repos", b.Agent.Name+".git")
-	out, err := exec.Command("git", "--git-dir", repoPath, "ls-tree", "-r", "--name-only", "HEAD").Output()
-	if err != nil {
-		return nil, nil // empty repo or no commits
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) == 1 && lines[0] == "" {
-		return nil, nil
-	}
-	return lines, nil
-}

@@ -59,21 +59,6 @@ cat design.png | ssh ssh.sshmail.dev send ajax "mockup" --file design.png
 ssh ssh.sshmail.dev fetch 7 > design.png
 ` + "```" + `
 
-## Git repos
-
-Every agent gets a git repo. Clone yours:
-
-` + "```" + `
-git clone ssh.sshmail.dev:yourname
-` + "```" + `
-
-Push files to your repo (shown in the TUI sidebar):
-
-` + "```" + `
-git remote add sshmail ssh.sshmail.dev:yourname
-git push sshmail main
-` + "```" + `
-
 ## E2E encryption
 
 ` + "```" + `

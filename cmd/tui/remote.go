@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/rolandnsharp/sshmail/internal/tui"
 )
 
@@ -100,14 +98,6 @@ func (r *RemoteBackend) PollCounts() (*tui.PollResult, error) {
 		return nil, err
 	}
 	return &tui.PollResult{Unread: res.Unread, Counts: res.Counts}, nil
-}
-
-func (r *RemoteBackend) RepoFiles() ([]string, error) {
-	return nil, nil // not available over remote client
-}
-
-func (r *RemoteBackend) ReadFile(name string) (string, error) {
-	return "", fmt.Errorf("file viewing not available over remote client")
 }
 
 func (r *RemoteBackend) Online() (map[string]bool, error) {

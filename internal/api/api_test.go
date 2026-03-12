@@ -1050,30 +1050,6 @@ func TestSendOneArg(t *testing.T) {
 	assertError(t, out, "usage")
 }
 
-func TestSanitizeRepoName(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"/alice.git", "alice"},
-		{"../../etc/passwd", "passwd"},
-		{"../../../root/.ssh/authorized_keys.git", "authorized_keys"},
-		{"/foo/bar/baz.git", "baz"},
-		{"alice", "alice"},
-		{"/alice", "alice"},
-		{"alice.git", "alice"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			got := sanitizeRepoName(tc.input)
-			if got != tc.expected {
-				t.Fatalf("sanitizeRepoName(%q) = %q, want %q", tc.input, got, tc.expected)
-			}
-		})
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Unknown command test
 // ---------------------------------------------------------------------------

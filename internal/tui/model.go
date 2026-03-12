@@ -86,8 +86,6 @@ func (i channelItem) Title() string {
 		prefix = "@ "
 	} else if i.kind == "board" {
 		prefix = "# "
-	} else if i.kind == "file" {
-		prefix = "  "
 	}
 	title := prefix + i.name
 	if i.unread > 0 {
@@ -113,8 +111,6 @@ type whoamiMsg struct{ agent *Agent }
 type sentMsg struct{ id int64 }
 type errMsg struct{ err error }
 type watchEventMsg struct{ event WatchEvent }
-type repoFilesMsg struct{ files []string }
-type fileContentMsg struct{ name, content string }
 type onlineMsg struct{ online map[string]bool }
 
 // --- Focus ---
@@ -144,7 +140,6 @@ type Model struct {
 	status   string
 	err       error
 	watchChan chan WatchEvent
-	repoFiles []string
 	agents    []Agent
 	online     map[string]bool
 	fullscreen bool
@@ -202,7 +197,6 @@ func (m Model) Init() tea.Cmd {
 		m.fetchWhoami,
 		m.fetchAgents,
 		m.startWatch(),
-		m.fetchRepoFiles,
 		m.fetchOnline,
 	)
 }
@@ -362,10 +356,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.me = msg.agent
 		m.status = fmt.Sprintf("logged in as %s", m.me.Name)
 
-	case repoFilesMsg:
-		m.repoFiles = msg.files
-		m.rebuildSidebar()
-
 	case agentsMsg:
 		m.agents = msg.agents
 		m.buildChannelList(msg.agents)
@@ -419,23 +409,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sentMsg:
 		m.status = fmt.Sprintf("sent #%d", msg.id)
 		cmds = append(cmds, m.fetchChannel(channelItem{name: m.selected, kind: m.selKind}))
-
-	case fileContentMsg:
-		content := msg.content
-		if strings.HasSuffix(msg.name, ".md") {
-			renderer, _ := glamour.NewTermRenderer(
-				glamour.WithWordWrap(m.viewport.Width-4),
-				glamour.WithStylePath("dark"),
-			)
-			if renderer != nil {
-				if rendered, err := renderer.Render(content); err == nil {
-					content = rendered
-				}
-			}
-		}
-		m.viewport.SetContent(content)
-		m.viewport.GotoTop()
-		m.status = fmt.Sprintf("file: %s", msg.name)
 
 	case onlineMsg:
 		m.online = msg.online
@@ -694,9 +667,6 @@ func (m *Model) syncSelection() tea.Cmd {
 		m.showReadme()
 		return nil
 	}
-	if item.kind == "file" {
-		return m.fetchFile(item.name)
-	}
 	return m.fetchChannel(item)
 }
 
@@ -823,8 +793,6 @@ func (m Model) channelTitle() string {
 		prefix = "@ "
 	case "board":
 		prefix = "# "
-	case "file":
-		return "📄 " + m.selected
 	}
 	return prefix + m.selected
 }
@@ -880,19 +848,6 @@ func (m *Model) buildChannelList(agents []Agent) {
 		}
 	}
 
-	items = append(items, channelItem{name: "Git Repo", kind: "header"})
-	if len(m.repoFiles) > 0 {
-		for _, f := range m.repoFiles {
-			items = append(items, channelItem{name: f, kind: "file"})
-		}
-	} else {
-		items = append(items, channelItem{name: "(empty)", kind: "file"})
-	}
-	if m.me != nil {
-		items = append(items, channelItem{name: "git clone", kind: "hint"})
-		items = append(items, channelItem{name: "ssh.sshmail.dev:" + m.me.Name, kind: "hint"})
-	}
-
 	m.channels = nil
 	m.channels = append(m.channels, boards...)
 	m.channels = append(m.channels, groups...)
@@ -922,24 +877,6 @@ func (m Model) fetchOnline() tea.Msg {
 		return onlineMsg{nil}
 	}
 	return onlineMsg{online}
-}
-
-func (m Model) fetchRepoFiles() tea.Msg {
-	files, err := m.backend.RepoFiles()
-	if err != nil {
-		return repoFilesMsg{nil}
-	}
-	return repoFilesMsg{files}
-}
-
-func (m Model) fetchFile(name string) tea.Cmd {
-	return func() tea.Msg {
-		content, err := m.backend.ReadFile(name)
-		if err != nil {
-			return errMsg{err}
-		}
-		return fileContentMsg{name: name, content: content}
-	}
 }
 
 func (m Model) fetchAgents() tea.Msg {

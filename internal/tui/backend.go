@@ -56,7 +56,5 @@ type Backend interface {
 	Send(to, message string) (*SendResult, error)
 	PollCounts() (*PollResult, error)
 	Watch(events chan<- WatchEvent) error
-	RepoFiles() ([]string, error)
-	ReadFile(name string) (string, error)
 	Online() (map[string]bool, error) // agent name → online
 }
