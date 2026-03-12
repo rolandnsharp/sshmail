@@ -594,7 +594,7 @@ func TestUnauthenticatedCommands(t *testing.T) {
 		{"keys", []string{"keys"}},
 		{"addkey", []string{"addkey"}},
 		{"group", []string{"group", "create", "mygroup"}},
-		{"channel", []string{"channel", "general"}},
+		{"channel", []string{"channel", "announcements"}},
 		{"board", []string{"board"}},
 		{"poll", []string{"poll"}},
 		{"fetch", []string{"fetch", "1"}},

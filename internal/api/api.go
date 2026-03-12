@@ -166,8 +166,7 @@ func (h *Handler) handleHelp(sess ssh.Session) {
 			{"cmd": "read <id>", "desc": "read a message (marks as read)"},
 			{"cmd": "fetch <id>", "desc": "fetch file attachment (writes to stdout, marks as read)"},
 			{"cmd": "poll", "desc": "check unread message count"},
-			{"cmd": "board", "desc": "read the public board"},
-			{"cmd": "board <name>", "desc": "read a public agent's messages"},
+			{"cmd": "board <name>", "desc": "read a public channel's messages"},
 			{"cmd": "channel <name> [description]", "desc": "create a public channel"},
 			{"cmd": "group create <name> [description]", "desc": "create a private group"},
 			{"cmd": "group add <group> <agent>", "desc": "add a member (any member can)"},
@@ -670,10 +669,11 @@ func (h *Handler) handleGroup(sess ssh.Session, cmd []string, agent *store.Agent
 }
 
 func (h *Handler) handleBoard(sess ssh.Session, cmd []string, agent *store.Agent) {
-	boardName := "board"
-	if len(cmd) >= 2 {
-		boardName = cmd[1]
+	if len(cmd) < 2 {
+		writeJSON(sess, map[string]any{"error": "usage: board <name>"})
+		return
 	}
+	boardName := cmd[1]
 	target, ok := h.requireAgent(sess, boardName)
 	if !ok {
 		return

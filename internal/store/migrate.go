@@ -56,8 +56,8 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	// Seed public board agent (fingerprint="board" so nobody can auth as it directly)
-	_, err = db.Exec(`INSERT OR IGNORE INTO agents (name, fingerprint, public_key, bio, public) VALUES ('board', 'board', '', 'Public bulletin board — anyone can read', 1)`)
+	// Rename legacy "board" agent to "general" (was auto-seeded, now channels are explicit)
+	_, err = db.Exec(`UPDATE agents SET name = 'general', fingerprint = 'general' WHERE name = 'board' AND fingerprint = 'board'`)
 	if err != nil {
 		return err
 	}

@@ -446,6 +446,9 @@ func (m Model) View() string {
 
 	panelHeight := m.panelHeight()
 	inputHeight := m.input.Height()
+	if m.selKind == "readme" {
+		inputHeight = 0
+	}
 	chatHeight := panelHeight - 1 - inputHeight // 1 for channel title, rest for input
 
 	allLines := make([]string, 0, m.height)
@@ -708,6 +711,9 @@ func (m *Model) updateLayout() {
 	}
 	panelHeight := m.panelHeight()
 	inputHeight := m.input.Height()
+	if m.selKind == "readme" {
+		inputHeight = 0
+	}
 	chatHeight := panelHeight - 1 - inputHeight // branding row + input rows
 	if chatHeight < 3 {
 		chatHeight = 3
