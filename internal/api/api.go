@@ -401,8 +401,11 @@ func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent)
 	}
 	if h.Events != nil {
 		go func() {
-			if to.Public || to.PublicKey == "" {
-				// Board or group: notify all members
+			if to.Public {
+				// Public board — broadcast to all online users
+				h.Events.Notify(h.Events.OnlineAgentIDs(), evt)
+			} else if to.PublicKey == "" {
+				// Private group — notify members only
 				members, err := h.Store.GroupMembers(to.ID)
 				if err == nil {
 					ids := make([]int64, len(members))
@@ -412,7 +415,7 @@ func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent)
 					h.Events.Notify(ids, evt)
 				}
 			} else {
-				// DM: notify recipient and sender
+				// DM — notify recipient and sender
 				h.Events.Notify([]int64{to.ID, agent.ID}, evt)
 			}
 		}()
@@ -874,9 +877,14 @@ func (h *Handler) requireMember(sess ssh.Session, groupID, agentID int64) bool {
 	return true
 }
 
-// canAccessMessage checks if an agent can access a message (sender, recipient, or group member).
+// canAccessMessage checks if an agent can access a message (sender, recipient, group member, or public channel).
 func (h *Handler) canAccessMessage(msg *store.Message, agentID int64) bool {
 	if msg.ToID == agentID || msg.FromID == agentID {
+		return true
+	}
+	// Allow access to messages on public channels
+	target, err := h.Store.AgentByID(msg.ToID)
+	if err == nil && target != nil && target.Public {
 		return true
 	}
 	isMember, _ := h.Store.IsGroupMember(msg.ToID, agentID)
