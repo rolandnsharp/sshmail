@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
 	bm "github.com/charmbracelet/wish/bubbletea"
@@ -87,8 +88,10 @@ func main() {
 					if len(cmd) == 0 && ptyActive {
 						agent := auth.AgentFromContext(sess.Context())
 
-						// New user — run registration
+						var m tui.Model
+
 						if agent == nil {
+							// New user — start with registration screen
 							fingerprint := auth.FingerprintFromContext(sess.Context())
 							pubKey := auth.PubKeyFromContext(sess.Context())
 							if fingerprint == "" {
@@ -96,51 +99,50 @@ func main() {
 								return
 							}
 
-							for {
-								regModel := tui.NewRegisterModel()
-								renderer := bm.MakeRenderer(sess)
-								lipgloss.SetDefaultRenderer(renderer)
-								opts := bm.MakeOptions(sess)
-								opts = append(opts, tea.WithAltScreen())
-								p := tea.NewProgram(regModel, opts...)
-								result, err := p.Run()
-								p.Kill()
-								if err != nil {
-									log.Printf("register TUI error: %v", err)
-									return
-								}
-								reg := result.(tui.RegisterModel)
-								if reg.Quit {
-									return
-								}
-
-								// Check if name is taken
-								existing, _ := db.AgentByName(reg.Name)
+							registerFn := func(name string) (*tui.RegisterResult, error) {
+								existing, _ := db.AgentByName(name)
 								if existing != nil {
-									wish.Println(sess, fmt.Sprintf("\"%s\" is taken, try another", reg.Name))
-									continue
+									return nil, fmt.Errorf("%q is taken", name)
 								}
-
-								newAgent, err := db.CreateAgent(reg.Name, fingerprint, strings.TrimSpace(pubKey), 0)
+								newAgent, err := db.CreateAgent(name, fingerprint, strings.TrimSpace(pubKey), 0)
 								if err != nil {
-									wish.Println(sess, fmt.Sprintf("error: %v", err))
-									return
+									return nil, err
 								}
+								log.Printf("New agent registered: %s", newAgent.Name)
 								agent = newAgent
-								log.Printf("New agent registered: %s", agent.Name)
-								break
+								backend := &tui.LocalBackend{
+									Store:   db,
+									Agent:   newAgent,
+									Events:  handler.Events,
+									DataDir: cfg.DataDir,
+								}
+								return &tui.RegisterResult{
+									Agent: &tui.Agent{
+										ID:          newAgent.ID,
+										Name:        newAgent.Name,
+										Fingerprint: newAgent.Fingerprint,
+										Bio:         newAgent.Bio,
+										Public:      newAgent.Public,
+										JoinedAt:    newAgent.JoinedAt,
+										InvitedBy:   newAgent.InvitedBy,
+									},
+									Backend: backend,
+								}, nil
 							}
+							m = tui.NewRegisteringModel(registerFn)
+						} else {
+							backend := &tui.LocalBackend{
+								Store:   db,
+								Agent:   agent,
+								Events:  handler.Events,
+								DataDir: cfg.DataDir,
+							}
+							m = tui.NewModel(backend)
 						}
 
-						backend := &tui.LocalBackend{
-							Store:   db,
-							Agent:   agent,
-							Events:  handler.Events,
-							DataDir: cfg.DataDir,
-						}
 						renderer := bm.MakeRenderer(sess)
+						renderer.SetColorProfile(termenv.TrueColor)
 						lipgloss.SetDefaultRenderer(renderer)
-						m := tui.NewModel(backend)
 						opts := bm.MakeOptions(sess)
 						opts = append(opts, tea.WithAltScreen(), tea.WithMouseCellMotion())
 						p := tea.NewProgram(m, opts...)

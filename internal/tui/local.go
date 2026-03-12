@@ -34,9 +34,16 @@ func (b *LocalBackend) Agents() ([]Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Agent, len(agents))
-	for i, a := range agents {
-		result[i] = Agent{
+	var result []Agent
+	for _, a := range agents {
+		// Hide private groups the current user isn't a member of
+		if strings.HasPrefix(a.Fingerprint, "group:") && !a.Public {
+			isMember, err := b.Store.IsGroupMember(a.ID, b.Agent.ID)
+			if err != nil || !isMember {
+				continue
+			}
+		}
+		result = append(result, Agent{
 			ID:          a.ID,
 			Name:        a.Name,
 			Fingerprint: a.Fingerprint,
@@ -44,7 +51,7 @@ func (b *LocalBackend) Agents() ([]Agent, error) {
 			Public:      a.Public,
 			JoinedAt:    a.JoinedAt,
 			InvitedBy:   a.InvitedBy,
-		}
+		})
 	}
 	return result, nil
 }

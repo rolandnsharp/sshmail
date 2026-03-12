@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"charm.land/glamour/v2"
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -124,6 +126,15 @@ const (
 
 // --- Model ---
 
+// RegisterResult holds the result of a successful registration.
+type RegisterResult struct {
+	Agent   *Agent
+	Backend Backend
+}
+
+// RegisterFunc is called to create a new agent. Returns the result or an error.
+type RegisterFunc func(name string) (*RegisterResult, error)
+
 type Model struct {
 	backend  Backend
 	me       *Agent
@@ -143,6 +154,31 @@ type Model struct {
 	agents    []Agent
 	online     map[string]bool
 	fullscreen bool
+
+	// Registration state
+	registering bool
+	regInput    textinput.Model
+	regErr      string
+	registerFn  RegisterFunc
+}
+
+// NewRegisteringModel creates a Model that starts with the registration screen.
+func NewRegisteringModel(registerFn RegisterFunc) Model {
+	ti := textinput.New()
+	ti.Placeholder = "pick a username"
+	ti.Focus()
+	ti.CharLimit = 20
+	ti.Width = 17
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(accent).Background(bg)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(textBright).Background(bg)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(textMuted).Background(bg)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(accentWarm)
+	ti.Cursor.SetMode(cursor.CursorBlink)
+	return Model{
+		registering: true,
+		regInput:    ti,
+		registerFn:  registerFn,
+	}
 }
 
 func NewModel(backend Backend) Model {
@@ -193,12 +229,59 @@ func NewModel(backend Backend) Model {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.registering {
+		return textinput.Blink
+	}
 	return tea.Batch(
 		m.fetchWhoami,
 		m.fetchAgents,
 		m.startWatch(),
 		m.fetchOnline,
 	)
+}
+
+// initMainTUI sets up the main TUI after registration completes.
+func (m *Model) initMainTUI(backend Backend) {
+	m.backend = backend
+	m.registering = false
+
+	sidebar := list.New([]list.Item{}, activeDelegate(), 0, 0)
+	sidebar.SetShowTitle(true)
+	sidebar.Title = "ssh sshmail.dev"
+	sidebar.Styles.Title = lipgloss.NewStyle().
+		Foreground(accent).
+		Bold(true).
+		Padding(0, 1)
+	sidebar.SetShowStatusBar(false)
+	sidebar.SetShowHelp(false)
+	sidebar.SetFilteringEnabled(false)
+	m.sidebar = sidebar
+
+	input := textarea.New()
+	input.Placeholder = "type a message..."
+	input.ShowLineNumbers = false
+	input.SetHeight(3)
+	input.CharLimit = 4096
+	input.MaxHeight = 6
+	input.KeyMap.InsertNewline.SetKeys("alt+enter")
+	inputBg := lipgloss.Color("#2D2C35")
+	input.FocusedStyle.Base = lipgloss.NewStyle().Background(inputBg)
+	input.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(textMuted).Background(inputBg)
+	input.FocusedStyle.Text = lipgloss.NewStyle().Foreground(textBright).Background(inputBg)
+	input.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(inputBg)
+	input.BlurredStyle.Base = lipgloss.NewStyle().Background(inputBg)
+	input.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(textMuted).Background(inputBg)
+	input.BlurredStyle.Text = lipgloss.NewStyle().Foreground(textNormal).Background(inputBg)
+	input.Blur()
+	m.input = input
+
+	m.viewport = viewport.New(0, 0)
+	m.focus = focusSidebar
+	m.selected = "readme"
+	m.selKind = "readme"
+	m.status = "connecting..."
+
+	m.updateLayout()
 }
 
 func (m Model) startWatch() tea.Cmd {
@@ -224,6 +307,52 @@ func waitForEvent(ch chan WatchEvent) tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Registration phase
+	if m.registering {
+		switch msg := msg.(type) {
+		case tea.WindowSizeMsg:
+			m.width = msg.Width
+			m.height = msg.Height
+			return m, textinput.Blink
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "esc", "ctrl+c":
+				return m, tea.Quit
+			case "enter":
+				name := strings.TrimSpace(m.regInput.Value())
+				if name == "" {
+					return m, nil
+				}
+				if !validName.MatchString(name) {
+					m.regErr = "lowercase letters, numbers, _ and - only (2-20 chars)"
+					return m, nil
+				}
+				if m.registerFn != nil {
+					result, err := m.registerFn(name)
+					if err != nil {
+						m.regErr = err.Error()
+						return m, nil
+					}
+					m.me = result.Agent
+					m.initMainTUI(result.Backend)
+					return m, tea.Batch(
+						m.fetchWhoami,
+						m.fetchAgents,
+						m.startWatch(),
+						m.fetchOnline,
+					)
+				}
+				return m, nil
+			}
+		}
+		var cmd tea.Cmd
+		m.regInput, cmd = m.regInput.Update(msg)
+		if msg, ok := msg.(tea.KeyMsg); ok && msg.String() != "enter" {
+			m.regErr = ""
+		}
+		return m, cmd
+	}
+
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -444,6 +573,10 @@ func (m Model) View() string {
 		return "loading..."
 	}
 
+	if m.registering {
+		return m.regView()
+	}
+
 	panelHeight := m.panelHeight()
 	inputHeight := m.input.Height()
 	if m.selKind == "readme" {
@@ -481,6 +614,44 @@ func (m Model) View() string {
 		allLines = allLines[:m.height]
 	}
 	return strings.Join(allLines, "\n")
+}
+
+func (m Model) regView() string {
+	titleStyle := lipgloss.NewStyle().
+		Foreground(accent).
+		Bold(true)
+
+	subtitleStyle := lipgloss.NewStyle().
+		Foreground(textMuted)
+
+	errStyle := lipgloss.NewStyle().
+		Foreground(accentPink)
+
+	var content strings.Builder
+	content.WriteString(titleStyle.Render("ssh sshmail.dev"))
+	content.WriteString("\n\n")
+	content.WriteString(subtitleStyle.Render("welcome! claim your username:"))
+	content.WriteString("\n\n")
+	content.WriteString(m.regInput.View())
+	if m.regErr != "" {
+		content.WriteString("\n")
+		content.WriteString(errStyle.Render(m.regErr))
+	}
+	content.WriteString("\n\n")
+	content.WriteString(subtitleStyle.Render("enter to confirm · esc to quit"))
+
+	box := lipgloss.NewStyle().
+		Background(bg).
+		Padding(2, 4).
+		Width(44).
+		Render(content.String())
+
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		box,
+		lipgloss.WithWhitespaceBackground(lipgloss.Color("#000000")),
+	)
 }
 
 func (m Model) sidebarWidth() int {
@@ -766,6 +937,7 @@ func (m *Model) renderMessages() {
 
 		sb.WriteString(header + "\n" + body + "\n")
 	}
+	sb.WriteString("\n\n")
 	m.viewport.SetContent(sb.String())
 	m.viewport.GotoBottom()
 }
@@ -830,7 +1002,7 @@ func (m *Model) buildChannelList(agents []Agent) {
 			groups = append(groups, channelItem{name: a.Name, kind: "group"})
 		case a.Public:
 			boards = append(boards, channelItem{name: a.Name, kind: "board", public: true})
-		case a.InvitedBy > 0 || (m.me != nil && a.Name == m.me.Name):
+		default:
 			dms = append(dms, channelItem{name: a.Name, kind: "dm"})
 		}
 	}

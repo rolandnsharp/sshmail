@@ -12,30 +12,28 @@ import (
 
 var validName = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,19}$`)
 
+// CheckNameFunc checks if a name is available. Returns nil if available,
+// or an error describing the problem.
+type CheckNameFunc func(name string) error
+
 // RegisterModel is the registration screen for new users.
 type RegisterModel struct {
-	input    textinput.Model
-	err      string
-	width    int
-	height   int
-	done     bool
-	Name     string
-	Quit     bool
+	input     textinput.Model
+	err       string
+	width     int
+	height    int
+	checkName CheckNameFunc
+	Name      string
+	Quit      bool
 }
 
-// RegisterResult is sent when registration completes.
-type RegisterResult struct {
-	Name string
-	Quit bool
-}
-
-func NewRegisterModel() RegisterModel {
+func NewRegisterModel(checkName CheckNameFunc) RegisterModel {
 	ti := textinput.New()
 	ti.Placeholder = "pick a username"
 	ti.Focus()
 	ti.CharLimit = 20
 	ti.Width = 24
-	return RegisterModel{input: ti}
+	return RegisterModel{input: ti, checkName: checkName}
 }
 
 func (m RegisterModel) Init() tea.Cmd {
@@ -62,9 +60,15 @@ func (m RegisterModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = "lowercase letters, numbers, _ and - only (2-20 chars)"
 				return m, nil
 			}
+			// Check availability via callback
+			if m.checkName != nil {
+				if err := m.checkName(name); err != nil {
+					m.err = err.Error()
+					return m, nil
+				}
+			}
 			m.err = ""
 			m.Name = name
-			m.done = true
 			return m, tea.Quit
 		}
 	}
@@ -113,11 +117,6 @@ func (m RegisterModel) View() string {
 		box,
 		lipgloss.WithWhitespaceBackground(lipgloss.Color("#1F1C23")),
 	)
-}
-
-// SetError sets an external error message (e.g. "name taken").
-func (m *RegisterModel) SetError(msg string) {
-	m.err = msg
 }
 
 // ValidateName checks if a name is syntactically valid.
