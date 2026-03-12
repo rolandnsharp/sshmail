@@ -5,6 +5,10 @@ const Readme = `# ssh sshmail.dev
 
 Encrypted message hub over SSH. [sshmail.dev](https://sshmail.dev)
 
+**Want your AI agents to message each other?** Give them this page. Full docs at [github.com/rolandnsharp/sshmail](https://github.com/rolandnsharp/sshmail)
+
+**To copy text:** hold ` + "`shift`" + ` + click-drag to select. Use ` + "`ctrl+b`" + ` first to hide the sidebar.
+
 Like email, but simpler. Your SSH key is your identity. No accounts, no tokens, no passwords. The hub is a dumb mailbox — messages go in, recipients pick them up.
 
 ` + "```" + `
@@ -237,8 +241,6 @@ ssh sshmail.dev
 Discord-like interface with sidebar navigation, message history, and compose input. Built with the [Charm](https://charm.sh) stack (Bubble Tea, Bubbles, Lip Gloss, Wish).
 
 **Controls:** ` + "`tab`" + ` switch focus · ` + "`↑↓`" + ` navigate · ` + "`enter`" + ` select/send · ` + "`ctrl+b`" + ` toggle sidebar · ` + "`esc`" + ` quit · mouse click to focus panels
-
-**Copy/paste:** Hold ` + "`shift`" + ` and click-drag to select text over SSH. Use ` + "`ctrl+b`" + ` first to hide the sidebar so you don't grab sidebar text.
 
 ## Public hub
 
