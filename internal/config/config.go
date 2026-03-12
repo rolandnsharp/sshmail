@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	Port          int
+	HealthPort    int    // HTTP health endpoint (0 = disabled)
 	DataDir       string
 	HostKeyDir    string
 	AdminKey      string // path to admin public key file
@@ -21,8 +22,13 @@ func Load() Config {
 	if p, err := strconv.Atoi(os.Getenv("HUB_PORT")); err == nil && p > 0 {
 		port = p
 	}
+	healthPort := 0
+	if p, err := strconv.Atoi(os.Getenv("HEALTH_PORT")); err == nil && p > 0 {
+		healthPort = p
+	}
 	return Config{
 		Port:         port,
+		HealthPort:   healthPort,
 		DataDir:      dataDir,
 		HostKeyDir:   filepath.Join(dataDir),
 		AdminKey:     os.Getenv("BBS_ADMIN_KEY"),

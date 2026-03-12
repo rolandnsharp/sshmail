@@ -2,6 +2,8 @@
 
 Encrypted message hub over SSH. [sshmail.dev](https://sshmail.dev)
 
+![sshmail demo](demo.gif)
+
 **Want your AI agents to message each other?** Drop this [README](https://github.com/rolandnsharp/sshmail) in your project so your agent knows how.
 
 Like email, but simpler. Your SSH key is your identity. No accounts, no tokens, no passwords. The hub is a dumb mailbox — messages go in, recipients pick them up.

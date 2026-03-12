@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -89,6 +92,7 @@ func main() {
 						agent := auth.AgentFromContext(sess.Context())
 
 						var m tui.Model
+						var backends []*tui.LocalBackend // track for cleanup
 
 						if agent == nil {
 							// New user — start with registration screen
@@ -116,6 +120,7 @@ func main() {
 									Events:  handler.Events,
 									DataDir: cfg.DataDir,
 								}
+								backends = append(backends, backend)
 								return &tui.RegisterResult{
 									Agent: &tui.Agent{
 										ID:          newAgent.ID,
@@ -137,6 +142,7 @@ func main() {
 								Events:  handler.Events,
 								DataDir: cfg.DataDir,
 							}
+							backends = append(backends, backend)
 							m = tui.NewModel(backend)
 						}
 
@@ -166,6 +172,9 @@ func main() {
 						}
 						p.Kill()
 						cancel()
+						for _, b := range backends {
+							b.Close()
+						}
 						return
 					}
 
@@ -188,6 +197,32 @@ func main() {
 			log.Fatalf("server: %v", err)
 		}
 	}()
+
+	// Health endpoint
+	if cfg.HealthPort > 0 {
+		startedAt := time.Now()
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+				var mem runtime.MemStats
+				runtime.ReadMemStats(&mem)
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"status":      "ok",
+					"uptime":      time.Since(startedAt).String(),
+					"goroutines":  runtime.NumGoroutine(),
+					"online":      len(handler.Events.OnlineAgentIDs()),
+					"mem_alloc":   fmt.Sprintf("%d MB", mem.Alloc/1024/1024),
+					"mem_sys":     fmt.Sprintf("%d MB", mem.Sys/1024/1024),
+				})
+			})
+			healthAddr := fmt.Sprintf("127.0.0.1:%d", cfg.HealthPort)
+			log.Printf("Health endpoint on %s", healthAddr)
+			if err := http.ListenAndServe(healthAddr, mux); err != nil {
+				log.Printf("health server: %v", err)
+			}
+		}()
+	}
 
 	<-done
 	log.Println("Shutting down...")

@@ -14,6 +14,7 @@ type LocalBackend struct {
 	Agent   *store.Agent
 	Events  *api.Hub
 	DataDir string
+	watchCh chan api.Event // tracks subscription for cleanup
 }
 
 func (b *LocalBackend) Whoami() (*Agent, error) {
@@ -141,7 +142,11 @@ func (b *LocalBackend) Send(to, message string) (*SendResult, error) {
 			ID:   id,
 		}
 		go func() {
-			if toAgent.Public || toAgent.PublicKey == "" {
+			if toAgent.Public {
+				// Public board — broadcast to all online users
+				b.Events.Notify(b.Events.OnlineAgentIDs(), evt)
+			} else if toAgent.PublicKey == "" {
+				// Private group — notify members only
 				members, err := b.Store.GroupMembers(toAgent.ID)
 				if err == nil {
 					ids := make([]int64, len(members))
@@ -151,6 +156,7 @@ func (b *LocalBackend) Send(to, message string) (*SendResult, error) {
 					b.Events.Notify(ids, evt)
 				}
 			} else {
+				// DM — notify recipient and sender
 				b.Events.Notify([]int64{toAgent.ID, b.Agent.ID}, evt)
 			}
 		}()
@@ -176,6 +182,7 @@ func (b *LocalBackend) Watch(events chan<- WatchEvent) error {
 		return fmt.Errorf("events not available")
 	}
 	ch := b.Events.Subscribe(b.Agent.ID)
+	b.watchCh = ch
 	go func() {
 		for evt := range ch {
 			events <- WatchEvent{
@@ -190,6 +197,14 @@ func (b *LocalBackend) Watch(events chan<- WatchEvent) error {
 		close(events)
 	}()
 	return nil
+}
+
+// Close unsubscribes from the event hub so the agent no longer appears online.
+func (b *LocalBackend) Close() {
+	if b.Events != nil && b.watchCh != nil {
+		b.Events.Unsubscribe(b.Agent.ID, b.watchCh)
+		b.watchCh = nil
+	}
 }
 
 func (b *LocalBackend) Online() (map[string]bool, error) {
