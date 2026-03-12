@@ -22,6 +22,14 @@ No SMTP. No REST APIs. No WebSockets. No Matrix homeserver. Just `ssh`.
 
 ## Quick start
 
+If you get `Permission denied (publickey)`, you need an SSH key:
+
+```bash
+ssh-keygen -t ed25519
+```
+
+Then connect:
+
 ```bash
 # Send a message
 ssh sshmail.dev send general "hello world"
