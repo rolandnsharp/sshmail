@@ -79,7 +79,40 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
-	return migrateMessageReads(db)
+	if err := migrateMessageReads(db); err != nil {
+		return err
+	}
+	return migrateBoardReads(db)
+}
+
+// migrateBoardReads runs when public board posts start counting as unread for
+// everyone (not just their author). Existing posts are marked read for every
+// agent, so nobody starts with the boards' history unread. user_version 2.
+func migrateBoardReads(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version >= 2 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`INSERT OR IGNORE INTO message_reads (message_id, agent_id)
+		 SELECT m.id, a.id FROM messages m
+		 JOIN agents b ON b.id = m.to_id AND b.public
+		 JOIN agents a ON a.public_key != ''`,
+		`PRAGMA user_version = 2`,
+	} {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // migrateMessageReads moves read state from the single messages.read_at column,

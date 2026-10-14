@@ -114,7 +114,10 @@ type countsMsg struct {
 	unread int
 	counts map[string]int
 }
-type boardMsg struct{ messages []Message }
+type boardMsg struct {
+	messages []Message
+	marked   bool // unread posts in it were just marked read
+}
 type agentsMsg struct{ agents []Agent }
 type whoamiMsg struct{ agent *Agent }
 type sentMsg struct{ id int64 }
@@ -519,6 +522,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = msg.messages
 		m.renderMessages()
 		m.status = fmt.Sprintf("%s — %d messages", m.selected, len(msg.messages))
+		if msg.marked {
+			cmds = append(cmds, m.fetchCounts)
+		}
 
 	case watchStartedMsg:
 		m.watchChan = msg.ch
@@ -1095,7 +1101,23 @@ func (m Model) fetchChannel(item channelItem) tea.Cmd {
 			if err != nil {
 				return errMsg{err}
 			}
-			return boardMsg{msgs}
+			// Opening a board reads it. Board messages carry no read state
+			// for the viewer, so take the board's posts from the unread list.
+			marked := false
+			if rm, ok := m.backend.(ReadMarker); ok {
+				if unread, err := m.backend.Inbox(false); err == nil {
+					var ids []int64
+					for _, u := range unread {
+						if u.To == item.name {
+							ids = append(ids, u.ID)
+						}
+					}
+					if len(ids) > 0 {
+						marked = rm.MarkRead(ids) == nil
+					}
+				}
+			}
+			return boardMsg{messages: msgs, marked: marked}
 		case "inbox":
 			msgs, err := m.backend.Inbox(false)
 			if err != nil {

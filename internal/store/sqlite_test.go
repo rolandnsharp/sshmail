@@ -188,3 +188,63 @@ func TestMigrationMarksExistingMessagesRead(t *testing.T) {
 	s = newTestStore(t, dir)
 	unread(t, s, bob, 1)
 }
+
+func TestBoardPostsUnreadForEveryoneSinceJoining(t *testing.T) {
+	s := newTestStore(t, t.TempDir())
+	alice := mustAgent(t, s, "alice")
+	bob := mustAgent(t, s, "bob")
+	board, err := s.CreateChannel("general", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := mustSend(t, s, alice, board, "announcement")
+
+	// Everyone but the author has it unread, under the board's name.
+	unread(t, s, alice, 0)
+	unread(t, s, bob, 1)
+	counts, err := s.UnreadCounts(bob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["general"] != 1 {
+		t.Fatalf("want map[general:1], got %v", counts)
+	}
+
+	// Someone joining later doesn't inherit the board's history.
+	carol := mustAgent(t, s, "carol")
+	if _, err := s.db.Exec(`UPDATE agents SET joined_at = datetime('now', '+1 minute') WHERE id = ?`, carol.ID); err != nil {
+		t.Fatal(err)
+	}
+	unread(t, s, carol, 0)
+
+	if err := s.MarkRead(post, bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	unread(t, s, bob, 0)
+}
+
+func TestBoardMigrationMarksExistingPostsRead(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestStore(t, dir)
+	alice := mustAgent(t, s, "alice")
+	bob := mustAgent(t, s, "bob")
+	board, err := s.CreateChannel("general", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustSend(t, s, alice, board, "old post")
+	mustSend(t, s, alice, bob, "dm")
+	// Simulate a database from before board posts counted.
+	for _, q := range []string{`DELETE FROM message_reads`, `PRAGMA user_version = 1`} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unread(t, s, bob, 2)
+	s.Close()
+
+	s = newTestStore(t, dir)
+	unread(t, s, bob, 1) // the board post is read; the DM is untouched
+	mustSend(t, s, alice, board, "new post")
+	unread(t, s, bob, 2)
+}

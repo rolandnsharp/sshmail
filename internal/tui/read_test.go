@@ -63,6 +63,16 @@ func TestOpeningConversationMarksItRead(t *testing.T) {
 		t.Fatalf("group: want [5 6] marked, got %v", fb.marked)
 	}
 
+	// Opening a board marks its unread posts (from the unread list).
+	fb.marked = nil
+	fb.msgs = append(fb.msgs, Message{ID: 7, From: "carol", To: "general"})
+	if b := m.fetchChannel(channelItem{name: "general", kind: "board"})().(boardMsg); !b.marked {
+		t.Fatalf("board: want marked")
+	}
+	if !reflect.DeepEqual(fb.marked, []int64{7}) {
+		t.Fatalf("board: want [7] marked, got %v", fb.marked)
+	}
+
 	// The inbox view lists unread messages; it must not mark them.
 	fb.marked = nil
 	if in := m.fetchChannel(channelItem{kind: "inbox"})().(inboxMsg); in.marked || fb.marked != nil {

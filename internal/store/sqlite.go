@@ -142,9 +142,13 @@ func (s *SQLiteStore) SendMessage(fromID, toID int64, body string, fileName, fil
 const unreadFor = `m.from_id != ? AND NOT EXISTS (
 	SELECT 1 FROM message_reads r WHERE r.message_id = m.id AND r.agent_id = ?)`
 
-// toAgentOrGroups is true for a message addressed to the agent (bound twice)
-// directly or to a group they belong to.
-const toAgentOrGroups = `(m.to_id = ? OR m.to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))`
+// toAgent is true for a message addressed to the agent (bound three times):
+// directly, to a group they belong to, or to a public board since they joined
+// (so a new agent doesn't start with the boards' whole history unread).
+const toAgent = `(m.to_id = ?
+	OR m.to_id IN (SELECT group_id FROM group_members WHERE member_id = ?)
+	OR (m.to_id IN (SELECT id FROM agents WHERE public)
+		AND m.created_at >= (SELECT joined_at FROM agents WHERE id = ?)))`
 
 func (s *SQLiteStore) Inbox(agentID int64, all bool, after *time.Time) ([]Message, error) {
 	var query string
@@ -157,8 +161,8 @@ func (s *SQLiteStore) Inbox(agentID int64, all bool, after *time.Time) ([]Messag
 		JOIN agents f ON m.from_id = f.id
 		JOIN agents t ON m.to_id = t.id
 		LEFT JOIN message_reads r ON r.message_id = m.id AND r.agent_id = ?
-		WHERE (m.from_id = ? OR ` + toAgentOrGroups + `)`
-		args = []any{agentID, agentID, agentID, agentID}
+		WHERE (m.from_id = ? OR ` + toAgent + `)`
+		args = []any{agentID, agentID, agentID, agentID, agentID}
 	} else {
 		// Unread: the same set poll counts.
 		query = `
@@ -166,8 +170,8 @@ func (s *SQLiteStore) Inbox(agentID int64, all bool, after *time.Time) ([]Messag
 		FROM messages m
 		JOIN agents f ON m.from_id = f.id
 		JOIN agents t ON m.to_id = t.id
-		WHERE ` + toAgentOrGroups + ` AND ` + unreadFor
-		args = []any{agentID, agentID, agentID, agentID}
+		WHERE ` + toAgent + ` AND ` + unreadFor
+		args = []any{agentID, agentID, agentID, agentID, agentID}
 	}
 	if after != nil {
 		query += ` AND m.created_at > ?`
@@ -217,21 +221,21 @@ func (s *SQLiteStore) UnreadCount(agentID int64) (int, error) {
 	var count int
 	err := s.db.QueryRow(`
 		SELECT COUNT(*) FROM messages m
-		WHERE `+toAgentOrGroups+` AND `+unreadFor,
-		agentID, agentID, agentID, agentID).Scan(&count)
+		WHERE `+toAgent+` AND `+unreadFor,
+		agentID, agentID, agentID, agentID, agentID).Scan(&count)
 	return count, err
 }
 
-// UnreadCounts is UnreadCount broken down by conversation: the group's name for
-// group messages, the sender's name for direct messages.
+// UnreadCounts is UnreadCount broken down by conversation: the group or board
+// name for posts, the sender's name for direct messages.
 func (s *SQLiteStore) UnreadCounts(agentID int64) (map[string]int, error) {
 	rows, err := s.db.Query(`
 		SELECT CASE WHEN m.to_id = ? THEN f.name ELSE t.name END AS conv, COUNT(*)
 		FROM messages m
 		JOIN agents f ON m.from_id = f.id
 		JOIN agents t ON m.to_id = t.id
-		WHERE `+toAgentOrGroups+` AND `+unreadFor+`
-		GROUP BY conv`, agentID, agentID, agentID, agentID, agentID)
+		WHERE `+toAgent+` AND `+unreadFor+`
+		GROUP BY conv`, agentID, agentID, agentID, agentID, agentID, agentID)
 	if err != nil {
 		return nil, err
 	}
