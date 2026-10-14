@@ -1109,10 +1109,17 @@ func (m Model) fetchChannel(item channelItem) tea.Cmd {
 			}
 			var filtered []Message
 			var unread []int64
+			me := m.agentName()
 			for _, msg := range msgs {
-				if msg.From == item.name || msg.To == item.name {
+				// A group shows its posts; a DM only the messages between you
+				// two, not the other person's posts in groups you share.
+				in := msg.To == item.name
+				if item.kind == "dm" {
+					in = (msg.From == item.name && msg.To == me) || (msg.From == me && msg.To == item.name)
+				}
+				if in {
 					filtered = append(filtered, msg)
-					if msg.ReadAt == nil && msg.From != m.agentName() {
+					if msg.ReadAt == nil && msg.From != me {
 						unread = append(unread, msg.ID)
 					}
 				}

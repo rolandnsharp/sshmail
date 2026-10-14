@@ -40,25 +40,27 @@ func TestOpeningConversationMarksItRead(t *testing.T) {
 		{ID: 2, From: "alice", To: "bob"},                // alice's own
 		{ID: 3, From: "bob", To: "alice", ReadAt: &read}, // already read
 		{ID: 4, From: "carol", To: "alice"},              // another conversation
-		{ID: 5, From: "bob", To: "team"},                 // bob in a group: the DM view shows it too
+		{ID: 5, From: "bob", To: "team"},                 // bob in a group: not part of the DM
 		{ID: 6, From: "carol", To: "team"},               // unread group post
 	}}
 	m := NewModel(fb)
 	m.me = &Agent{Name: "alice"}
 
 	msg := m.fetchChannel(channelItem{name: "bob", kind: "dm"})()
-	if in, ok := msg.(inboxMsg); !ok || !in.marked || len(in.messages) != 4 {
+	if in, ok := msg.(inboxMsg); !ok || !in.marked || len(in.messages) != 3 {
 		t.Fatalf("dm: got %+v", msg)
 	}
-	// Whatever the view shows unread is marked: here bob's DM and his group post.
-	if !reflect.DeepEqual(fb.marked, []int64{1, 5}) {
-		t.Fatalf("dm: want [1 5] marked, got %v", fb.marked)
+	if !reflect.DeepEqual(fb.marked, []int64{1}) {
+		t.Fatalf("dm: want [1] marked, got %v", fb.marked)
 	}
 
 	fb.marked = nil
-	m.fetchChannel(channelItem{name: "team", kind: "group"})()
-	if !reflect.DeepEqual(fb.marked, []int64{6}) {
-		t.Fatalf("group: want [6] marked, got %v", fb.marked)
+	msg = m.fetchChannel(channelItem{name: "team", kind: "group"})()
+	if in := msg.(inboxMsg); len(in.messages) != 2 {
+		t.Fatalf("group: want posts 5 and 6, got %+v", in.messages)
+	}
+	if !reflect.DeepEqual(fb.marked, []int64{5, 6}) {
+		t.Fatalf("group: want [5 6] marked, got %v", fb.marked)
 	}
 
 	// The inbox view lists unread messages; it must not mark them.
