@@ -165,6 +165,19 @@ func (b *LocalBackend) Send(to, message string) (*SendResult, error) {
 	return &SendResult{OK: true, ID: id}, nil
 }
 
+func (b *LocalBackend) MarkRead(ids []int64) error {
+	for _, id := range ids {
+		if err := b.Store.MarkRead(id, b.Agent.ID); err != nil {
+			return err
+		}
+	}
+	// Let the viewer's other watch streams (prompt badges etc.) refresh.
+	if len(ids) > 0 && b.Events != nil {
+		b.Events.Notify([]int64{b.Agent.ID}, api.Event{Type: "read"})
+	}
+	return nil
+}
+
 func (b *LocalBackend) PollCounts() (*PollResult, error) {
 	unread, err := b.Store.UnreadCount(b.Agent.ID)
 	if err != nil {

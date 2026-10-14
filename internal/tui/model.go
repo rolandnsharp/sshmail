@@ -106,7 +106,14 @@ type pollMsg struct {
 	counts map[string]int
 }
 type pollErrMsg struct{ err error }
-type inboxMsg struct{ messages []Message }
+type inboxMsg struct {
+	messages []Message
+	marked   bool // unread messages in it were just marked read
+}
+type countsMsg struct {
+	unread int
+	counts map[string]int
+}
 type boardMsg struct{ messages []Message }
 type agentsMsg struct{ agents []Agent }
 type whoamiMsg struct{ agent *Agent }
@@ -500,6 +507,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selKind == "inbox" {
 			m.status = fmt.Sprintf("inbox — %d messages", len(msg.messages))
 		}
+		if msg.marked {
+			cmds = append(cmds, m.fetchCounts)
+		}
+
+	case countsMsg:
+		m.status = fmt.Sprintf("%s — %d unread", m.agentName(), msg.unread)
+		m.updateUnreadCounts(msg.counts)
 
 	case boardMsg:
 		m.messages = msg.messages
@@ -1070,7 +1084,7 @@ func (m Model) fetchInbox() tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
-	return inboxMsg{msgs}
+	return inboxMsg{messages: msgs}
 }
 
 func (m Model) fetchChannel(item channelItem) tea.Cmd {
@@ -1087,19 +1101,29 @@ func (m Model) fetchChannel(item channelItem) tea.Cmd {
 			if err != nil {
 				return errMsg{err}
 			}
-			return inboxMsg{msgs}
+			return inboxMsg{messages: msgs}
 		default:
 			msgs, err := m.backend.Inbox(true)
 			if err != nil {
 				return errMsg{err}
 			}
 			var filtered []Message
+			var unread []int64
 			for _, msg := range msgs {
 				if msg.From == item.name || msg.To == item.name {
 					filtered = append(filtered, msg)
+					if msg.ReadAt == nil && msg.From != m.agentName() {
+						unread = append(unread, msg.ID)
+					}
 				}
 			}
-			return inboxMsg{filtered}
+			// Opening a conversation reads it. The inbox view is left alone:
+			// it lists unread messages, so marking them would empty it.
+			marked := false
+			if rm, ok := m.backend.(ReadMarker); ok && len(unread) > 0 {
+				marked = rm.MarkRead(unread) == nil
+			}
+			return inboxMsg{messages: filtered, marked: marked}
 		}
 	}
 }
@@ -1116,6 +1140,15 @@ func (m Model) sendMessage(text string) tea.Cmd {
 		}
 		return sentMsg{result.ID}
 	}
+}
+
+// fetchCounts refreshes the unread counts once, outside the poll tick.
+func (m Model) fetchCounts() tea.Msg {
+	result, err := m.backend.PollCounts()
+	if err != nil {
+		return errMsg{err}
+	}
+	return countsMsg{unread: result.Unread, counts: result.Counts}
 }
 
 func (m Model) pollTick() tea.Cmd {

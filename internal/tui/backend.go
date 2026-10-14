@@ -58,3 +58,10 @@ type Backend interface {
 	Watch(events chan<- WatchEvent) error
 	Online() (map[string]bool, error) // agent name → online
 }
+
+// ReadMarker is implemented by backends that can mark messages read for the
+// viewer. Opening a DM or group conversation marks its unread messages read,
+// so the sidebar's unread counts go down.
+type ReadMarker interface {
+	MarkRead(ids []int64) error
+}
