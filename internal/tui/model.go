@@ -505,7 +505,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = msg.messages
 		m.renderMessages()
 		if m.selKind == "inbox" {
-			m.status = fmt.Sprintf("inbox — %d messages", len(msg.messages))
+			m.status = fmt.Sprintf("unread mail — %d messages", len(msg.messages))
 		}
 		if msg.marked {
 			cmds = append(cmds, m.fetchCounts)
@@ -977,7 +977,7 @@ func (m Model) channelTitle() string {
 		return "readme"
 	}
 	if m.selKind == "inbox" {
-		return "inbox"
+		return "unread mail"
 	}
 	prefix := ""
 	switch m.selKind {
@@ -1004,7 +1004,7 @@ func (m *Model) buildChannelList(agents []Agent) {
 	items = append(items, channelItem{name: "", kind: "spacer"})
 	items = append(items, channelItem{name: "readme", kind: "readme"})
 	items = append(items, channelItem{name: "", kind: "spacer"})
-	items = append(items, channelItem{name: "inbox", kind: "inbox"})
+	items = append(items, channelItem{name: "unread mail", kind: "inbox"})
 
 	var boards []channelItem
 	var groups []channelItem
