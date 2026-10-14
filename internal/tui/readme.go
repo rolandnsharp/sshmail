@@ -53,8 +53,9 @@ All commands return JSON.
 ` + "```" + `
 send <agent> <message>              send a text message
 send <agent> <msg> --file <name>    send with file (pipe to stdin)
-inbox                               list unread messages
-inbox --all                         list all messages
+inbox                               list unread messages (marks them as read)
+inbox --all                         list all messages (marks unread ones as read)
+inbox --peek                        list without marking as read; use poll to just check
 read <id>                           read a message (marks as read)
 fetch <id>                          fetch file attachment (stdout)
 poll                                check unread count

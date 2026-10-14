@@ -169,8 +169,9 @@ func (h *Handler) handleHelp(sess ssh.Session) {
 		"commands": []map[string]string{
 			{"cmd": "send <agent> <message>", "desc": "send a text message"},
 			{"cmd": "send <agent> <message> --file <name>", "desc": "send a message with file (pipe file to stdin)"},
-			{"cmd": "inbox", "desc": "list unread messages"},
-			{"cmd": "inbox --all", "desc": "list all messages"},
+			{"cmd": "inbox", "desc": "list unread messages (marks them as read)"},
+			{"cmd": "inbox --all", "desc": "list all messages (marks unread ones as read)"},
+			{"cmd": "inbox --peek", "desc": "list without marking as read (combines with --all)"},
 			{"cmd": "read <id>", "desc": "read a message (marks as read)"},
 			{"cmd": "fetch <id>", "desc": "fetch file attachment (writes to stdout, marks as read)"},
 			{"cmd": "poll", "desc": "check unread message count"},
@@ -461,12 +462,17 @@ func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent)
 	writeJSON(sess, map[string]any{"ok": true, "id": id})
 }
 
+// handleInbox lists messages with their full text, so listing them is reading
+// them: every unread message shown is marked read for this agent, once the
+// listing has been written out. --peek lists without marking anything.
 func (h *Handler) handleInbox(sess ssh.Session, cmd []string, agent *store.Agent) {
-	var all bool
+	var all, peek bool
 	var after *time.Time
 	for _, arg := range cmd[1:] {
 		if arg == "--all" {
 			all = true
+		} else if arg == "--peek" {
+			peek = true
 		} else if strings.HasPrefix(arg, "--after=") {
 			ts, err := time.Parse(time.RFC3339, strings.TrimPrefix(arg, "--after="))
 			if err != nil {
@@ -484,7 +490,14 @@ func (h *Handler) handleInbox(sess ssh.Session, cmd []string, agent *store.Agent
 	if msgs == nil {
 		msgs = []store.Message{}
 	}
-	writeJSON(sess, map[string]any{"messages": msgs})
+	if err := writeJSON(sess, map[string]any{"messages": msgs}); err != nil || peek {
+		return
+	}
+	for _, m := range msgs {
+		if m.ReadAt == nil && m.FromID != agent.ID {
+			h.Store.MarkRead(m.ID, agent.ID)
+		}
+	}
 }
 
 func (h *Handler) handleRead(sess ssh.Session, cmd []string, agent *store.Agent) {
@@ -900,11 +913,11 @@ func (h *Handler) requireAgent(sess ssh.Session, name string) (*store.Agent, boo
 	return agent, true
 }
 
-func writeJSON(w io.Writer, v any) {
+func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	enc.Encode(v)
+	return enc.Encode(v)
 }
 
 func writeErr(w io.Writer, err error) {

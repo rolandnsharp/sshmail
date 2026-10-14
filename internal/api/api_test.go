@@ -1320,3 +1320,54 @@ func TestPoll(t *testing.T) {
 		t.Fatalf("expected unread=1, got %v", out["unread"])
 	}
 }
+
+func TestInboxMarksShownMessagesRead(t *testing.T) {
+	h, ms := setupHandler(t)
+	alice := addAgent(ms, "alice")
+	bob := addAgent(ms, "bob")
+
+	sessSend := newMockSession(bob, []string{"send", "alice", "hey"})
+	h.Handle(sessSend)
+	assertOK(t, sessSend.outputJSON())
+
+	inbox := func(args ...string) int {
+		t.Helper()
+		sess := newMockSession(alice, append([]string{"inbox"}, args...))
+		h.Handle(sess)
+		out := sess.outputJSON()
+		assertNoError(t, out)
+		return len(out["messages"].([]any))
+	}
+	poll := func() float64 {
+		t.Helper()
+		sess := newMockSession(alice, []string{"poll"})
+		h.Handle(sess)
+		return sess.outputJSON()["unread"].(float64)
+	}
+
+	// --peek lists without marking.
+	if n := inbox("--peek"); n != 1 {
+		t.Fatalf("peek: want 1 message, got %d", n)
+	}
+	if u := poll(); u != 1 {
+		t.Fatalf("after peek: want unread=1, got %v", u)
+	}
+
+	// A plain inbox shows the message and marks it read.
+	if n := inbox(); n != 1 {
+		t.Fatalf("inbox: want 1 message, got %d", n)
+	}
+	if u := poll(); u != 0 {
+		t.Fatalf("after inbox: want unread=0, got %v", u)
+	}
+	if n := inbox(); n != 0 {
+		t.Fatalf("second inbox: want 0 messages, got %d", n)
+	}
+
+	// Bob's own message stays unread-free for him and isn't marked by alice's reads.
+	sessPoll := newMockSession(bob, []string{"poll"})
+	h.Handle(sessPoll)
+	if u := sessPoll.outputJSON()["unread"].(float64); u != 0 {
+		t.Fatalf("bob: want unread=0, got %v", u)
+	}
+}
