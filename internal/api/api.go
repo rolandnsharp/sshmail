@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anmitsu/go-shlex"
 	"github.com/charmbracelet/ssh"
 	"github.com/google/uuid"
 	gossh "golang.org/x/crypto/ssh"
@@ -311,6 +312,37 @@ func (h *Handler) handleKeys(sess ssh.Session, agent *store.Agent) {
 	writeJSON(sess, map[string]any{"keys": keys})
 }
 
+var (
+	sendPrefix = regexp.MustCompile(`^\s*send\s+(\S+)(?:[ \t]|$)`)
+	sendFile   = regexp.MustCompile(`(?:^|\s)--file\s+(\S+)\s*$`)
+)
+
+// sendText returns a send command's message as it was typed. ssh delivers the
+// command as one string and Command() splits it like a shell, which drops
+// apostrophes (as unbalanced quotes) and collapses newlines, so the text is
+// taken from the raw command instead. A message sent as one quoted argument,
+// as the TUI client does, is unquoted as before. A trailing --file <name> is
+// split off. ok is false if the raw command doesn't start "send <to>".
+func sendText(raw, to string) (message string, fileName *string, ok bool) {
+	m := sendPrefix.FindStringSubmatchIndex(raw)
+	if m == nil || raw[m[2]:m[3]] != to {
+		return "", nil, false
+	}
+	rest := raw[m[1]:]
+	if f := sendFile.FindStringSubmatchIndex(rest); f != nil {
+		name := rest[f[2]:f[3]]
+		fileName = &name
+		rest = rest[:f[0]]
+	}
+	rest = strings.TrimSpace(rest)
+	if rest != "" && (rest[0] == '"' || rest[0] == '\'') {
+		if toks, err := shlex.Split(rest, true); err == nil && len(toks) == 1 {
+			rest = toks[0]
+		}
+	}
+	return rest, fileName, true
+}
+
 func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent) {
 	// send <agent> <message> [--file <name>]
 	if len(cmd) < 3 {
@@ -337,9 +369,11 @@ func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent)
 	}
 
 	// Parse message and --file flag
-	var message string
-	var fileName *string
+	message, fileName, ok := sendText(sess.RawCommand(), toName)
 	args := cmd[2:]
+	if ok {
+		args = nil
+	}
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--file" && i+1 < len(args) {
 			name := args[i+1]

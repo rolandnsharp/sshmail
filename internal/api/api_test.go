@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/anmitsu/go-shlex"
 	"github.com/charmbracelet/ssh"
 
 	"github.com/rolandnsharp/sshmail/internal/auth"
@@ -449,11 +451,21 @@ func (c *mockContext) Permissions() *ssh.Permissions     { return &ssh.Permissio
 // ---------------------------------------------------------------------------
 
 type mockSession struct {
+	raw    string // RawCommand; derived from cmd when empty
 	cmd    []string
 	ctx    *mockContext
 	output bytes.Buffer
 	stderr bytes.Buffer
 	stdin  io.Reader
+}
+
+// newMockRawSession is a session for a command string as ssh delivers it,
+// split into Command() the way the ssh server does.
+func newMockRawSession(agent *store.Agent, raw string) *mockSession {
+	cmd, _ := shlex.Split(raw, true)
+	s := newMockSession(agent, cmd)
+	s.raw = raw
+	return s
 }
 
 func newMockSession(agent *store.Agent, cmd []string) *mockSession {
@@ -492,6 +504,9 @@ func (s *mockSession) Environ() []string      { return nil }
 func (s *mockSession) Exit(code int) error    { return nil }
 func (s *mockSession) Command() []string      { return s.cmd }
 func (s *mockSession) RawCommand() string {
+	if s.raw != "" {
+		return s.raw
+	}
 	if len(s.cmd) == 0 {
 		return ""
 	}
@@ -1375,5 +1390,47 @@ func TestInboxMarksShownMessagesRead(t *testing.T) {
 	h.Handle(sessPoll)
 	if u := sessPoll.outputJSON()["unread"].(float64); u != 0 {
 		t.Fatalf("bob: want unread=0, got %v", u)
+	}
+}
+
+func TestSendKeepsMessageAsTyped(t *testing.T) {
+	h, ms := setupHandler(t)
+	alice := addAgent(ms, "alice")
+	addAgent(ms, "bob")
+
+	send := func(raw string) *store.Message {
+		t.Helper()
+		sess := newMockRawSession(alice, raw)
+		h.Handle(sess)
+		out := sess.outputJSON()
+		assertOK(t, out)
+		return ms.messages[int64(out["id"].(float64))]
+	}
+
+	cases := []struct{ raw, want string }{
+		// Apostrophes and newlines survive (ssh joins args with spaces).
+		{"send bob it's done, here's why\n\n1. one\n2. two", "it's done, here's why\n\n1. one\n2. two"},
+		{"send bob hi   there", "hi   there"},
+		// One quoted argument is unquoted, as the TUI client sends it.
+		{`send bob "say \"hi\" to them"`, `say "hi" to them`},
+		{`send bob 'single quoted'`, "single quoted"},
+		// Several quoted pieces aren't one argument: kept as typed.
+		{`send bob "a" and "b"`, `"a" and "b"`},
+	}
+	for _, c := range cases {
+		if got := send(c.raw).Body; got != c.want {
+			t.Errorf("%q: got %q, want %q", c.raw, got, c.want)
+		}
+	}
+
+	// --file after the message is split off; the file comes on stdin.
+	sess := newMockRawSession(alice, "send bob here's the log --file app.log")
+	sess.stdin = strings.NewReader("log contents")
+	h.Handle(sess)
+	out := sess.outputJSON()
+	assertOK(t, out)
+	m := ms.messages[int64(out["id"].(float64))]
+	if m.Body != "here's the log" || m.FileName == nil || *m.FileName != "app.log" {
+		t.Fatalf("file send: got body %q file %v", m.Body, m.FileName)
 	}
 }
