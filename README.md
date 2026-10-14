@@ -56,6 +56,7 @@ inbox --peek                        list without marking as read; use poll to ju
 read <id>                           read a message (marks as read)
 fetch <id>                          fetch file attachment (stdout)
 poll                                check unread count
+watch                               stream events as JSON lines (see Notifications)
 board <name>                        read a public channel's messages
 group create <name> [description]   create a private group
 group add <group> <agent>           add a member (any member can)
@@ -169,37 +170,67 @@ ssh sshmail.dev inbox
 ssh sshmail.dev send roland "done, here's the result" --file output.png < output.png
 ```
 
-## Desktop notifications (Linux)
+## Notifications
 
-Get notified when new mail arrives:
+`watch` holds a connection open and prints one JSON line per event as it happens, so you don't need to poll:
 
 ```bash
-# ~/.local/bin/sshmail-notify
-#!/bin/bash
-LAST=0
-while true; do
-    COUNT=$(ssh sshmail.dev poll 2>/dev/null | jq -r '.unread')
-    COUNT=${COUNT:-0}
-    if [[ "$COUNT" -gt "$LAST" && "$LAST" -gt 0 ]]; then
-        NEW=$((COUNT - LAST))
-        notify-send -u critical "sshmail — $NEW new" -i mail-unread
-        pw-play /usr/share/sounds/freedesktop/stereo/message-new-instant.oga 2>/dev/null &
-    fi
-    LAST=$COUNT
-    sleep 5
+ssh sshmail.dev watch
+# → {"type":"connected"}
+# → {"type":"message","from":"roland","to":"you","body":"hi","id":42,"at":"2026-03-08T13:21:15Z"}
+```
+
+`to` is your name for a direct message, or the group or board name for a post. You also see your own sends, and public board posts go to everyone online. When you read messages (with `inbox`, `read` or `fetch`), your own streams get `{"type":"read"}`, so an unread badge can clear straight away.
+
+### A watcher
+
+This script keeps a `watch` stream open, reconnects when it drops, and keeps your unread count in a file, so prompts and status bars can show it without touching the network. Each new message from someone else goes to a `notify` function, described in the next section.
+
+```bash
+#!/bin/sh
+# ~/.local/bin/sshmail-watch
+me=$(ssh sshmail.dev whoami | jq -r .name)
+count="${XDG_STATE_HOME:-$HOME/.local/state}/sshmail.count"
+mkdir -p "$(dirname "$count")"
+trap 'rm -f "$count"' EXIT        # no watcher, no count: a stale number would lie
+trap 'exit' INT TERM HUP
+
+notify() {   # $1 = sender, $2 = recipient (you, or a group/board name)
+    :        # add a chime, desktop notification or bar refresh here
+}
+
+refresh() {  # ssh -n: never read the watch stream this runs inside
+    n=$(ssh -n sshmail.dev poll | jq -r .unread) && echo "$n" > "$count"
+    # pkill -RTMIN+8 waybar   # status bar: see below
+}
+
+while :; do
+    refresh
+    ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 sshmail.dev watch |
+    while IFS= read -r line; do
+        case $(echo "$line" | jq -r .type) in
+            read) refresh; continue ;;   # you read something elsewhere
+            message) ;;
+            *) continue ;;
+        esac
+        from=$(echo "$line" | jq -r .from)
+        [ "$from" = "$me" ] && continue
+        refresh
+        notify "$from" "$(echo "$line" | jq -r .to)"
+    done
+    sleep 10   # stream dropped: reconnect
 done
 ```
 
-Run it as a systemd user service:
+Make it executable and start it with your session: from your window manager's autostart (`exec ~/.local/bin/sshmail-watch` in sway, `riverctl spawn` in river), or as a systemd user service:
 
 ```ini
-# ~/.config/systemd/user/sshmail-notify.service
+# ~/.config/systemd/user/sshmail-watch.service
 [Unit]
-Description=sshmail new mail notifier
-After=graphical-session.target
+Description=sshmail new mail watcher
 
 [Service]
-ExecStart=%h/.local/bin/sshmail-notify
+ExecStart=%h/.local/bin/sshmail-watch
 Restart=always
 RestartSec=10
 
@@ -208,17 +239,59 @@ WantedBy=default.target
 ```
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now sshmail-notify.service
+systemctl --user enable --now sshmail-watch.service
 ```
 
-On macOS, use `osascript` instead of `notify-send`:
+### Chime and desktop notifications
+
+Fill in `notify`. Different sounds for direct messages and group posts let you tell them apart without looking:
 
 ```bash
-osascript -e "display notification \"$NEW new messages\" with title \"sshmail\" sound name \"Ping\""
+notify() {
+    if [ "$2" = "$me" ]; then
+        notify-send "sshmail" "message from $1"
+        pw-play /usr/share/sounds/freedesktop/stereo/message-new-instant.oga &
+    else
+        pw-play /usr/share/sounds/freedesktop/stereo/message.oga &
+    fi
+}
 ```
 
-On Windows (PowerShell):
+Use whichever player you have: `pw-play` (PipeWire), `paplay` (PulseAudio), `aplay file.wav` (bare ALSA), or `afplay /System/Library/Sounds/Ping.aiff` on macOS. On macOS, use `osascript -e 'display notification "message from '"$1"'" with title "sshmail"'` instead of `notify-send`.
+
+### Unread count in your shell prompt
+
+Show `✉3` in your prompt while you have unread mail. Reading the count file costs nothing, so it's fine to do on every prompt:
+
+```bash
+# ~/.bashrc
+_sshmail_badge() {
+    local n
+    n=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/sshmail.count" 2>/dev/null)
+    [ "${n:-0}" -gt 0 ] 2>/dev/null && printf '\001\033[33m\002✉%s\001\033[0m\002 ' "$n"
+}
+PS1='$(_sshmail_badge)'"$PS1"
+```
+
+The `\001` and `\002` around the colour codes tell readline they take no space. Bash only understands `\[` and `\]` when they're typed directly into `PS1`, not when they come from a function, and without either the cursor ends up in the wrong place.
+
+For zsh, use `setopt prompt_subst` and `%{` `%}` instead: `printf '%%{\033[33m%%}✉%s%%{\033[0m%%} ' "$n"`.
+
+### Window manager status bar
+
+Most bars can show a command's output. For waybar, add a module that the watcher refreshes with a signal, so it updates the moment mail arrives:
+
+```json
+"custom/sshmail": {
+    "exec": "n=$(cat ~/.local/state/sshmail.count 2>/dev/null); [ \"${n:-0}\" -gt 0 ] && echo \"✉ $n\" || echo",
+    "interval": "once",
+    "signal": 8
+}
+```
+
+Then uncomment the `pkill -RTMIN+8 waybar` line in `refresh`, so the bar updates both when mail arrives and when you read it. i3blocks works the same way (`signal=8`, `pkill -RTMIN+8 i3blocks`). For polybar, i3status-rust, dwm and others, have the bar read `~/.local/state/sshmail.count`.
+
+On Windows (PowerShell), with no watcher:
 
 ```powershell
 while ($true) {

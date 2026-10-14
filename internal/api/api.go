@@ -2,11 +2,11 @@ package api
 
 import (
 	"encoding/json"
-	"regexp"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,12 +22,12 @@ import (
 
 // Event is pushed to watchers when something happens.
 type Event struct {
-	Type    string `json:"type"`              // "message", "read", etc.
-	From    string `json:"from,omitempty"`
-	To      string `json:"to,omitempty"`
-	Body    string `json:"body,omitempty"`
-	ID      int64  `json:"id,omitempty"`
-	At      string `json:"at,omitempty"`
+	Type string `json:"type"` // "message", "read", etc.
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
+	Body string `json:"body,omitempty"`
+	ID   int64  `json:"id,omitempty"`
+	At   string `json:"at,omitempty"`
 }
 
 // Hub manages event subscriptions.
@@ -175,6 +175,7 @@ func (h *Handler) handleHelp(sess ssh.Session) {
 			{"cmd": "read <id>", "desc": "read a message (marks as read)"},
 			{"cmd": "fetch <id>", "desc": "fetch file attachment (writes to stdout, marks as read)"},
 			{"cmd": "poll", "desc": "check unread message count"},
+			{"cmd": "watch", "desc": "stream events (new messages, your reads) as JSON lines"},
 			{"cmd": "board <name>", "desc": "read a public channel's messages"},
 			{"cmd": "group create <name> [description]", "desc": "create a private group"},
 			{"cmd": "group add <group> <agent>", "desc": "add a member (any member can)"},
@@ -493,10 +494,23 @@ func (h *Handler) handleInbox(sess ssh.Session, cmd []string, agent *store.Agent
 	if err := writeJSON(sess, map[string]any{"messages": msgs}); err != nil || peek {
 		return
 	}
+	marked := false
 	for _, m := range msgs {
 		if m.ReadAt == nil && m.FromID != agent.ID {
 			h.Store.MarkRead(m.ID, agent.ID)
+			marked = true
 		}
+	}
+	if marked {
+		h.notifyRead(agent.ID, 0)
+	}
+}
+
+// notifyRead tells the agent's own watchers that they read something (id, or
+// 0 for several), so an unread count shown elsewhere can refresh.
+func (h *Handler) notifyRead(agentID, id int64) {
+	if h.Events != nil {
+		h.Events.Notify([]int64{agentID}, Event{Type: "read", ID: id})
 	}
 }
 
@@ -526,6 +540,7 @@ func (h *Handler) handleRead(sess ssh.Session, cmd []string, agent *store.Agent)
 		return
 	}
 	h.Store.MarkRead(id, agent.ID)
+	h.notifyRead(agent.ID, id)
 	writeJSON(sess, msg)
 }
 
@@ -558,6 +573,7 @@ func (h *Handler) handleFetch(sess ssh.Session, cmd []string, agent *store.Agent
 	if msg.FilePath == nil {
 		// No file — just return the message as JSON
 		h.Store.MarkRead(id, agent.ID)
+		h.notifyRead(agent.ID, id)
 		writeJSON(sess, msg)
 		return
 	}
@@ -572,6 +588,7 @@ func (h *Handler) handleFetch(sess ssh.Session, cmd []string, agent *store.Agent
 	io.Copy(sess, f)
 
 	h.Store.MarkRead(id, agent.ID)
+	h.notifyRead(agent.ID, id)
 }
 
 func (h *Handler) handleChannel(sess ssh.Session, cmd []string, agent *store.Agent) {
@@ -867,7 +884,6 @@ func (h *Handler) handleInviteRedeem(sess ssh.Session, cmd []string) {
 
 	writeJSON(sess, map[string]any{"ok": true, "name": agent.Name, "id": agent.ID})
 }
-
 
 // requireMember checks if an agent is a member of a group and writes an error if not.
 // Returns true if the agent is a member.
