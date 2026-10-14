@@ -170,8 +170,8 @@ func (h *Handler) handleHelp(sess ssh.Session) {
 			{"cmd": "send <agent> <message>", "desc": "send a text message"},
 			{"cmd": "send <agent> <message> --file <name>", "desc": "send a message with file (pipe file to stdin)"},
 			{"cmd": "inbox", "desc": "list unread messages (marks them as read)"},
-			{"cmd": "inbox --all", "desc": "list all messages (marks unread ones as read)"},
-			{"cmd": "inbox --peek", "desc": "list without marking as read (combines with --all)"},
+			{"cmd": "inbox --all", "desc": "list all messages (doesn't mark anything read)"},
+			{"cmd": "inbox --peek", "desc": "list unread messages without marking them read"},
 			{"cmd": "read <id>", "desc": "read a message (marks as read)"},
 			{"cmd": "fetch <id>", "desc": "fetch file attachment (writes to stdout, marks as read)"},
 			{"cmd": "poll", "desc": "check unread message count"},
@@ -463,9 +463,10 @@ func (h *Handler) handleSend(sess ssh.Session, cmd []string, agent *store.Agent)
 	writeJSON(sess, map[string]any{"ok": true, "id": id})
 }
 
-// handleInbox lists messages with their full text, so listing them is reading
-// them: every unread message shown is marked read for this agent, once the
-// listing has been written out. --peek lists without marking anything.
+// handleInbox lists messages with their full text. The unread listing is
+// reading them, so once it has been written out those messages are marked read
+// for this agent. --all is history (clients load conversations with it) and
+// never marks; neither does --peek.
 func (h *Handler) handleInbox(sess ssh.Session, cmd []string, agent *store.Agent) {
 	var all, peek bool
 	var after *time.Time
@@ -491,7 +492,7 @@ func (h *Handler) handleInbox(sess ssh.Session, cmd []string, agent *store.Agent
 	if msgs == nil {
 		msgs = []store.Message{}
 	}
-	if err := writeJSON(sess, map[string]any{"messages": msgs}); err != nil || peek {
+	if err := writeJSON(sess, map[string]any{"messages": msgs}); err != nil || all || peek {
 		return
 	}
 	marked := false

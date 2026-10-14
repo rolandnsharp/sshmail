@@ -1345,7 +1345,13 @@ func TestInboxMarksShownMessagesRead(t *testing.T) {
 		return sess.outputJSON()["unread"].(float64)
 	}
 
-	// --peek lists without marking.
+	// --all (history) and --peek list without marking.
+	if n := inbox("--all"); n != 1 {
+		t.Fatalf("all: want 1 message, got %d", n)
+	}
+	if u := poll(); u != 1 {
+		t.Fatalf("after --all: want unread=1, got %v", u)
+	}
 	if n := inbox("--peek"); n != 1 {
 		t.Fatalf("peek: want 1 message, got %d", n)
 	}

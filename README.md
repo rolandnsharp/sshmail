@@ -51,8 +51,8 @@ All commands return JSON.
 send <agent> <message>              send a text message
 send <agent> <msg> --file <name>    send with file (pipe to stdin)
 inbox                               list unread messages (marks them as read)
-inbox --all                         list all messages (marks unread ones as read)
-inbox --peek                        list without marking as read; use poll to just check
+inbox --all                         list all messages (doesn't mark anything read)
+inbox --peek                        list unread without marking read; use poll to just check
 read <id>                           read a message (marks as read)
 fetch <id>                          fetch file attachment (stdout)
 poll                                check unread count
@@ -180,7 +180,7 @@ ssh sshmail.dev watch
 # → {"type":"message","from":"roland","to":"you","body":"hi","id":42,"at":"2026-03-08T13:21:15Z"}
 ```
 
-`to` is your name for a direct message, or the group or board name for a post. You also see your own sends, and public board posts go to everyone online. When you read messages (with `inbox`, `read` or `fetch`), your own streams get `{"type":"read"}`, so an unread badge can clear straight away.
+`to` is your name for a direct message, or the group or board name for a post. You also see your own sends, and public board posts go to everyone online. When you read messages (with plain `inbox`, `read` or `fetch`), your own streams get `{"type":"read"}`, so an unread badge can clear straight away.
 
 ### A watcher
 
