@@ -135,16 +135,39 @@ func (s *SQLiteStore) SendMessage(fromID, toID int64, body string, fileName, fil
 	return res.LastInsertId()
 }
 
+// unreadFor is true for a message the agent (bound twice, as the first two
+// parameters) has not read. Read state is per reader, in message_reads, so one
+// agent reading a message never marks it read for the sender or for the other
+// members of a group, and an agent's own messages are never unread for them.
+const unreadFor = `m.from_id != ? AND NOT EXISTS (
+	SELECT 1 FROM message_reads r WHERE r.message_id = m.id AND r.agent_id = ?)`
+
+// toAgentOrGroups is true for a message addressed to the agent (bound twice)
+// directly or to a group they belong to.
+const toAgentOrGroups = `(m.to_id = ? OR m.to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))`
+
 func (s *SQLiteStore) Inbox(agentID int64, all bool, after *time.Time) ([]Message, error) {
-	query := `
-		SELECT m.id, m.from_id, f.name, m.to_id, t.name, m.body, m.file_name, m.file_path, m.created_at, m.read_at
+	var query string
+	var args []any
+	if all {
+		// Everything the agent sent or received; read_at is when they read it.
+		query = `
+		SELECT m.id, m.from_id, f.name, m.to_id, t.name, m.body, m.file_name, m.file_path, m.created_at, r.read_at
 		FROM messages m
 		JOIN agents f ON m.from_id = f.id
 		JOIN agents t ON m.to_id = t.id
-		WHERE (m.to_id = ? OR m.from_id = ? OR m.to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))`
-	args := []any{agentID, agentID, agentID}
-	if !all {
-		query += ` AND m.read_at IS NULL`
+		LEFT JOIN message_reads r ON r.message_id = m.id AND r.agent_id = ?
+		WHERE (m.from_id = ? OR ` + toAgentOrGroups + `)`
+		args = []any{agentID, agentID, agentID, agentID}
+	} else {
+		// Unread: the same set poll counts.
+		query = `
+		SELECT m.id, m.from_id, f.name, m.to_id, t.name, m.body, m.file_name, m.file_path, m.created_at, NULL
+		FROM messages m
+		JOIN agents f ON m.from_id = f.id
+		JOIN agents t ON m.to_id = t.id
+		WHERE ` + toAgentOrGroups + ` AND ` + unreadFor
+		args = []any{agentID, agentID, agentID, agentID}
 	}
 	if after != nil {
 		query += ` AND m.created_at > ?`
@@ -168,10 +191,11 @@ func (s *SQLiteStore) Inbox(agentID int64, all bool, after *time.Time) ([]Messag
 	return msgs, rows.Err()
 }
 
+// GetMessage has no reader, so it carries no read state (ReadAt is nil).
 func (s *SQLiteStore) GetMessage(id int64) (*Message, error) {
 	m := &Message{}
 	err := s.db.QueryRow(`
-		SELECT m.id, m.from_id, f.name, m.to_id, t.name, m.body, m.file_name, m.file_path, m.created_at, m.read_at
+		SELECT m.id, m.from_id, f.name, m.to_id, t.name, m.body, m.file_name, m.file_path, m.created_at, NULL
 		FROM messages m
 		JOIN agents f ON m.from_id = f.id
 		JOIN agents t ON m.to_id = t.id
@@ -183,28 +207,31 @@ func (s *SQLiteStore) GetMessage(id int64) (*Message, error) {
 	return m, err
 }
 
-func (s *SQLiteStore) MarkRead(id int64) error {
-	_, err := s.db.Exec(`UPDATE messages SET read_at = datetime('now') WHERE id = ? AND read_at IS NULL`, id)
+// MarkRead records that agentID has read the message. Other readers are unaffected.
+func (s *SQLiteStore) MarkRead(messageID, agentID int64) error {
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO message_reads (message_id, agent_id) VALUES (?, ?)`, messageID, agentID)
 	return err
 }
 
 func (s *SQLiteStore) UnreadCount(agentID int64) (int, error) {
 	var count int
 	err := s.db.QueryRow(`
-		SELECT COUNT(*) FROM messages
-		WHERE (to_id = ? OR to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))
-		AND read_at IS NULL`, agentID, agentID).Scan(&count)
+		SELECT COUNT(*) FROM messages m
+		WHERE `+toAgentOrGroups+` AND `+unreadFor,
+		agentID, agentID, agentID, agentID).Scan(&count)
 	return count, err
 }
 
+// UnreadCounts is UnreadCount broken down by conversation: the group's name for
+// group messages, the sender's name for direct messages.
 func (s *SQLiteStore) UnreadCounts(agentID int64) (map[string]int, error) {
 	rows, err := s.db.Query(`
-		SELECT a.name, COUNT(*) FROM messages m
-		JOIN agents a ON m.to_id = a.id
-		WHERE (m.to_id = ? OR m.to_id IN (SELECT group_id FROM group_members WHERE member_id = ?))
-		AND m.from_id != ?
-		AND m.read_at IS NULL
-		GROUP BY m.to_id`, agentID, agentID, agentID)
+		SELECT CASE WHEN m.to_id = ? THEN f.name ELSE t.name END AS conv, COUNT(*)
+		FROM messages m
+		JOIN agents f ON m.from_id = f.id
+		JOIN agents t ON m.to_id = t.id
+		WHERE `+toAgentOrGroups+` AND `+unreadFor+`
+		GROUP BY conv`, agentID, agentID, agentID, agentID, agentID)
 	if err != nil {
 		return nil, err
 	}

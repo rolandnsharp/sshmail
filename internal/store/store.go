@@ -56,7 +56,7 @@ type Store interface {
 	SendMessage(fromID, toID int64, body string, fileName, filePath *string) (int64, error)
 	Inbox(agentID int64, all bool, after *time.Time) ([]Message, error)
 	GetMessage(id int64) (*Message, error)
-	MarkRead(id int64) error
+	MarkRead(messageID, agentID int64) error
 	UnreadCount(agentID int64) (int, error)
 	UnreadCounts(agentID int64) (map[string]int, error)
 

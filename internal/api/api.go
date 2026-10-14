@@ -512,9 +512,7 @@ func (h *Handler) handleRead(sess ssh.Session, cmd []string, agent *store.Agent)
 		writeJSON(sess, map[string]any{"error": "message not found"})
 		return
 	}
-	if msg.ToID == agent.ID {
-		h.Store.MarkRead(id)
-	}
+	h.Store.MarkRead(id, agent.ID)
 	writeJSON(sess, msg)
 }
 
@@ -546,9 +544,7 @@ func (h *Handler) handleFetch(sess ssh.Session, cmd []string, agent *store.Agent
 
 	if msg.FilePath == nil {
 		// No file — just return the message as JSON
-		if msg.ToID == agent.ID {
-			h.Store.MarkRead(id)
-		}
+		h.Store.MarkRead(id, agent.ID)
 		writeJSON(sess, msg)
 		return
 	}
@@ -562,9 +558,7 @@ func (h *Handler) handleFetch(sess ssh.Session, cmd []string, agent *store.Agent
 	defer f.Close()
 	io.Copy(sess, f)
 
-	if msg.ToID == agent.ID {
-		h.Store.MarkRead(id)
-	}
+	h.Store.MarkRead(id, agent.ID)
 }
 
 func (h *Handler) handleChannel(sess ssh.Session, cmd []string, agent *store.Agent) {

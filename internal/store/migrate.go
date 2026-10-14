@@ -75,5 +75,56 @@ func migrate(db *sql.DB) error {
 	// Add email column to agents (ignore error if column already exists)
 	db.Exec(`ALTER TABLE agents ADD COLUMN email TEXT DEFAULT NULL`)
 	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_email ON agents(email) WHERE email IS NOT NULL`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return migrateMessageReads(db)
+}
+
+// migrateMessageReads moves read state from the single messages.read_at column,
+// which every reader of a message shared, to one row per reader. The old flags
+// can't be trusted (a sender's message went "read" when the recipient opened it,
+// and a group message when any member did), so on the first run every existing
+// message counts as read by everyone who could see it. Guarded by user_version
+// so the backfill runs once.
+func migrateMessageReads(db *sql.DB) error {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS message_reads (
+			message_id INTEGER NOT NULL REFERENCES messages(id),
+			agent_id INTEGER NOT NULL REFERENCES agents(id),
+			read_at DATETIME NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (message_id, agent_id)
+		)`); err != nil {
+		return err
+	}
+
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version >= 1 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		// Direct recipients.
+		`INSERT OR IGNORE INTO message_reads (message_id, agent_id, read_at)
+		 SELECT id, to_id, COALESCE(read_at, datetime('now')) FROM messages`,
+		// Group members.
+		`INSERT OR IGNORE INTO message_reads (message_id, agent_id, read_at)
+		 SELECT m.id, gm.member_id, COALESCE(m.read_at, datetime('now'))
+		 FROM messages m JOIN group_members gm ON gm.group_id = m.to_id`,
+		`PRAGMA user_version = 1`,
+	} {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

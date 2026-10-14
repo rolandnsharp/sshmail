@@ -28,6 +28,7 @@ type mockStore struct {
 	keys     map[int64][]store.AgentKey
 	groups   map[int64]map[int64]string // groupID -> memberID -> role
 	invites  map[string]int64           // code -> createdBy
+	reads    map[int64]map[int64]bool   // messageID -> readerID
 	nextID   int64
 }
 
@@ -37,6 +38,7 @@ func newMockStore() *mockStore {
 		messages: make(map[int64]*store.Message),
 		keys:     make(map[int64][]store.AgentKey),
 		groups:   make(map[int64]map[int64]string),
+		reads:    make(map[int64]map[int64]bool),
 		invites:  make(map[string]int64),
 		nextID:   1,
 	}
@@ -185,7 +187,7 @@ func (s *mockStore) Inbox(agentID int64, all bool, after *time.Time) ([]store.Me
 	var out []store.Message
 	for _, m := range s.messages {
 		if m.ToID == agentID {
-			if !all && m.ReadAt != nil {
+			if !all && !s.unreadFor(m, agentID) {
 				continue
 			}
 			if after != nil && m.CreatedAt.Before(*after) {
@@ -207,16 +209,23 @@ func (s *mockStore) GetMessage(id int64) (*store.Message, error) {
 	return m, nil
 }
 
-func (s *mockStore) MarkRead(id int64) error {
+func (s *mockStore) MarkRead(messageID, agentID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m, ok := s.messages[id]
-	if !ok {
+	if _, ok := s.messages[messageID]; !ok {
 		return fmt.Errorf("not found")
 	}
-	now := time.Now()
-	m.ReadAt = &now
+	if s.reads[messageID] == nil {
+		s.reads[messageID] = make(map[int64]bool)
+	}
+	s.reads[messageID][agentID] = true
 	return nil
+}
+
+// unreadFor mirrors the SQLite store: read state is per reader, and an agent's
+// own messages are never unread for them. Caller holds s.mu.
+func (s *mockStore) unreadFor(m *store.Message, agentID int64) bool {
+	return m.FromID != agentID && !s.reads[m.ID][agentID]
 }
 
 func (s *mockStore) UnreadCount(agentID int64) (int, error) {
@@ -224,7 +233,7 @@ func (s *mockStore) UnreadCount(agentID int64) (int, error) {
 	defer s.mu.Unlock()
 	count := 0
 	for _, m := range s.messages {
-		if m.ToID == agentID && m.ReadAt == nil {
+		if m.ToID == agentID && s.unreadFor(m, agentID) {
 			count++
 		}
 	}
@@ -236,7 +245,7 @@ func (s *mockStore) UnreadCounts(agentID int64) (map[string]int, error) {
 	defer s.mu.Unlock()
 	counts := make(map[string]int)
 	for _, m := range s.messages {
-		if m.ToID == agentID && m.ReadAt == nil {
+		if m.ToID == agentID && s.unreadFor(m, agentID) {
 			counts[m.FromName]++
 		}
 	}
