@@ -456,7 +456,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							Body: text,
 							At:   time.Now(),
 						}
-						m.messages = append([]Message{optimistic}, m.messages...)
+						m.messages = append(m.messages, optimistic)
 						m.renderMessages()
 					}
 					return m, m.sendMessage(text)
@@ -938,8 +938,7 @@ func (m *Model) renderMessages() {
 	)
 
 	var sb strings.Builder
-	for i := len(m.messages) - 1; i >= 0; i-- {
-		msg := m.messages[i]
+	for _, msg := range m.messages {
 		ts := "\033[38;2;133;131;146m" + msg.At.Local().Format("15:04") + "\033[0m"
 		from := nameColorFor(msg.From) + msg.From + ":\033[0m"
 		header := "  " + ts + " " + from

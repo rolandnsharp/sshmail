@@ -248,3 +248,29 @@ func TestBoardMigrationMarksExistingPostsRead(t *testing.T) {
 	mustSend(t, s, alice, board, "new post")
 	unread(t, s, bob, 2)
 }
+
+// Messages list oldest first, and ids break ties: several sends in one
+// second (created_at is whole seconds) still come out in the order sent.
+func TestInboxOrder(t *testing.T) {
+	s := newTestStore(t, t.TempDir())
+	alice := mustAgent(t, s, "alice")
+	bob := mustAgent(t, s, "bob")
+	var want []int64
+	for _, body := range []string{"first", "second", "third", "fourth"} {
+		want = append(want, mustSend(t, s, alice, bob, body))
+	}
+	for _, all := range []bool{false, true} {
+		msgs, err := s.Inbox(bob.ID, all, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != len(want) {
+			t.Fatalf("all=%v: want %d messages, got %d", all, len(want), len(msgs))
+		}
+		for i, m := range msgs {
+			if m.ID != want[i] {
+				t.Fatalf("all=%v: want ids %v, got %v", all, want, msgs)
+			}
+		}
+	}
+}

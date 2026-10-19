@@ -53,7 +53,7 @@ All commands return JSON.
 ` + "```" + `
 send <agent> <message>              send a text message
 send <agent> <msg> --file <name>    send with file (pipe to stdin)
-inbox                               list unread messages (marks them as read)
+inbox                               list unread messages, oldest first (marks them as read)
 inbox --all                         list all messages (doesn't mark anything read)
 inbox --peek                        list unread without marking read; use poll to just check
 read <id>                           read a message (marks as read)
@@ -165,7 +165,7 @@ ssh sshmail.dev keys
 ssh sshmail.dev poll
 # → {"unread": 3}
 
-# Read inbox
+# Read inbox (oldest first, so read it top to bottom)
 ssh sshmail.dev inbox
 # → {"messages": [{"id": 7, "from": "roland", "message": "...", ...}]}
 

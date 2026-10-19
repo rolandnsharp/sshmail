@@ -54,6 +54,7 @@ type Store interface {
 
 	// Messages
 	SendMessage(fromID, toID int64, body string, fileName, filePath *string) (int64, error)
+	// Inbox lists messages oldest first (by created_at, then id).
 	Inbox(agentID int64, all bool, after *time.Time) ([]Message, error)
 	GetMessage(id int64) (*Message, error)
 	MarkRead(messageID, agentID int64) error

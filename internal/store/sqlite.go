@@ -177,7 +177,9 @@ func (s *SQLiteStore) Inbox(agentID int64, all bool, after *time.Time) ([]Messag
 		query += ` AND m.created_at > ?`
 		args = append(args, after.UTC().Format("2006-01-02 15:04:05"))
 	}
-	query += ` ORDER BY m.created_at DESC`
+	// Oldest first, so a listing reads like the conversation did. created_at
+	// is whole seconds, so id breaks ties within a second.
+	query += ` ORDER BY m.created_at, m.id`
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
